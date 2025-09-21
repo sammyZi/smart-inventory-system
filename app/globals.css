@@ -1,0 +1,92 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  :root {
+    /* Simple Clean Light Theme - No overwhelming colors */
+    --background: 0 0% 100%; /* Pure white */
+    --foreground: 0 0% 9%; /* Almost black */
+    
+    --card: 0 0% 100%;
+    --card-foreground: 0 0% 9%;
+    
+    --popover: 0 0% 100%;
+    --popover-foreground: 0 0% 9%;
+    
+    /* Simple blue for primary actions */
+    --primary: 221 83% 53%;
+    --primary-foreground: 0 0% 100%;
+    
+    /* Light grays for secondary elements */
+    --secondary: 0 0% 96%;
+    --secondary-foreground: 0 0% 9%;
+    --muted: 0 0% 96%;
+    --muted-foreground: 0 0% 45%;
+    
+    /* Accent - very subtle */
+    --accent: 0 0% 96%;
+    --accent-foreground: 0 0% 9%;
+    
+    /* Simple status colors - not overwhelming */
+    --destructive: 0 72% 51%;
+    --destructive-foreground: 0 0% 100%;
+    --success: 142 76% 36%;
+    --success-foreground: 0 0% 100%;
+    --warning: 38 92% 50%;
+    --warning-foreground: 0 0% 100%;
+    
+    /* Clean borders */
+    --border: 0 0% 89%;
+    --input: 0 0% 89%;
+    --ring: 221 83% 53%;
+    
+    --radius: 0.5rem;
+    
+    /* Chart colors - simple and clean */
+    --chart-1: 221 83% 53%;
+    --chart-2: 142 76% 36%;
+    --chart-3: 25 95% 53%;
+    --chart-4: 271 91% 65%;
+    --chart-5: 0 72% 51%;
+  }
+}
+
+@layer base {
+  * {
+    border-color: hsl(var(--border));
+  }
+  body {
+    background-color: hsl(var(--background));
+    color: hsl(var(--foreground));
+    font-family: var(--font-poppins), sans-serif;
+  }
+}
+
+@layer components {
+  /* Simple glass effect - not overwhelming */
+ 
+  
+  /* Simple status colors */
+  .status-positive {
+    color: hsl(var(--success));
+  }
+  
+  .status-negative {
+    color: hsl(var(--destructive));
+  }
+  
+  .status-warning {
+    color: hsl(var(--warning));
+  }
+}
+
+.glass-modal {
+  background: rgba(255,255,255,0.25);
+  border-radius: 1rem;
+  border: 1px solid rgba(255,255,255,0.22);
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
+  box-shadow: 0 4px 32px 0 rgba(31, 38, 135, 0.14);
+}
+
