@@ -91,6 +91,9 @@ jspm_packages/
 *.swo
 *~
 
+# Kiro IDE files
+.kiro/
+
 # OS generated files
 .DS_Store
 .DS_Store?
