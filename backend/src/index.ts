@@ -5,10 +5,14 @@ import rateLimit from 'express-rate-limit';
 import dotenv from 'dotenv';
 import { createServer } from 'http';
 import { Server } from 'socket.io';
+import cookieParser from 'cookie-parser';
 
 import { logger } from './utils/logger';
 import { errorHandler } from './middleware/errorHandler';
 import { requestLogger } from './middleware/requestLogger';
+import { autoTokenRefresh } from './middleware/tokenRefresh';
+import { applySecurity } from './middleware/security';
+import { apiRateLimit } from './middleware/rateLimiter';
 import { connectDatabase } from './config/database';
 import { connectRedis } from './config/redis';
 import { initializeFirebase } from './config/firebase';
@@ -47,23 +51,21 @@ app.use(cors({
   allowedHeaders: ['Content-Type', 'Authorization']
 }));
 
-// Rate limiting
-const limiter = rateLimit({
-  windowMs: parseInt(process.env.RATE_LIMIT_WINDOW_MS || '900000'), // 15 minutes
-  max: parseInt(process.env.RATE_LIMIT_MAX_REQUESTS || '100'), // limit each IP to 100 requests per windowMs
-  message: {
-    error: 'Too many requests from this IP, please try again later.',
-    code: 'RATE_LIMIT_EXCEEDED'
-  },
-  standardHeaders: true,
-  legacyHeaders: false,
-});
+// Apply security middleware
+app.use(applySecurity);
 
-app.use(limiter);
+// Rate limiting
+app.use('/api/', apiRateLimit);
 
 // Body parsing middleware
 app.use(express.json({ limit: '10mb' }));
 app.use(express.urlencoded({ extended: true, limit: '10mb' }));
+
+// Cookie parsing middleware (for refresh tokens)
+app.use(cookieParser());
+
+// Auto token refresh middleware
+app.use('/api/', autoTokenRefresh);
 
 // Request logging
 app.use(requestLogger);
@@ -78,12 +80,22 @@ app.get('/health', (req, res) => {
   });
 });
 
-// API routes will be added here
+// Import routes
+import authRoutes from './routes/auth';
+
+// API routes
+app.use('/api/v1/auth', authRoutes);
+
+// API info endpoint
 app.get('/api/v1', (req, res) => {
   res.json({
     message: 'Smart Inventory & Billing Management System API',
     version: '1.0.0',
-    status: 'active'
+    status: 'active',
+    endpoints: {
+      auth: '/api/v1/auth',
+      health: '/health'
+    }
   });
 });
 
