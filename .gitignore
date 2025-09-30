@@ -64,6 +64,7 @@ jspm_packages/
 
 # nuxt.js build output
 .nuxt
+.kiro
 
 # vuepress build output
 .vuepress/dist
