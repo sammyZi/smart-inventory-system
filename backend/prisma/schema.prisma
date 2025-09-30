@@ -1,0 +1,257 @@
+// This is your Prisma schema file,
+// learn more about it in the docs: https://pris.ly/d/prisma-schema
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+// User management
+model User {
+  id          String   @id @default(cuid())
+  firebaseUid String   @unique
+  email       String   @unique
+  firstName   String?
+  lastName    String?
+  phone       String?
+  role        UserRole @default(STAFF)
+  locationId  String?
+  isActive    Boolean  @default(true)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  // Relations
+  location     Location?     @relation(fields: [locationId], references: [id])
+  transactions Transaction[]
+  auditLogs    AuditLog[]
+
+  @@map("users")
+}
+
+enum UserRole {
+  ADMIN
+  MANAGER
+  STAFF
+  CUSTOMER
+}
+
+// Location/Store management
+model Location {
+  id          String  @id @default(cuid())
+  name        String
+  address     String?
+  city        String?
+  state       String?
+  zipCode     String?
+  country     String?
+  phone       String?
+  email       String?
+  isActive    Boolean @default(true)
+  timezone    String  @default("UTC")
+  currency    String  @default("USD")
+  taxRate     Float   @default(0.0)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  // Relations
+  users        User[]
+  transactions Transaction[]
+  auditLogs    AuditLog[]
+
+  @@map("locations")
+}
+
+// Transaction management
+model Transaction {
+  id              String            @id @default(cuid())
+  transactionNo   String            @unique
+  locationId      String
+  customerId      String?
+  staffId         String
+  subtotal        Float
+  taxAmount       Float
+  discountAmount  Float             @default(0.0)
+  totalAmount     Float
+  paymentMethod   PaymentMethod
+  paymentStatus   PaymentStatus     @default(PENDING)
+  status          TransactionStatus @default(PENDING)
+  notes           String?
+  receiptUrl      String?
+  createdAt       DateTime          @default(now())
+  updatedAt       DateTime          @updatedAt
+  completedAt     DateTime?
+
+  // Relations
+  location Location           @relation(fields: [locationId], references: [id])
+  staff    User               @relation(fields: [staffId], references: [id])
+  items    TransactionItem[]
+  refunds  Refund[]
+
+  @@map("transactions")
+}
+
+model TransactionItem {
+  id            String  @id @default(cuid())
+  transactionId String
+  productId     String
+  productName   String
+  productSku    String
+  quantity      Int
+  unitPrice     Float
+  totalPrice    Float
+  discountAmount Float  @default(0.0)
+  taxAmount     Float   @default(0.0)
+
+  // Relations
+  transaction Transaction @relation(fields: [transactionId], references: [id], onDelete: Cascade)
+
+  @@map("transaction_items")
+}
+
+enum PaymentMethod {
+  CASH
+  CREDIT_CARD
+  DEBIT_CARD
+  DIGITAL_WALLET
+  BANK_TRANSFER
+  CHECK
+  OTHER
+}
+
+enum PaymentStatus {
+  PENDING
+  COMPLETED
+  FAILED
+  REFUNDED
+  PARTIALLY_REFUNDED
+}
+
+enum TransactionStatus {
+  PENDING
+  COMPLETED
+  CANCELLED
+  REFUNDED
+  PARTIALLY_REFUNDED
+}
+
+// Refund management
+model Refund {
+  id            String      @id @default(cuid())
+  transactionId String
+  refundNo      String      @unique
+  amount        Float
+  reason        String?
+  status        RefundStatus @default(PENDING)
+  processedBy   String?
+  createdAt     DateTime    @default(now())
+  updatedAt     DateTime    @updatedAt
+  processedAt   DateTime?
+
+  // Relations
+  transaction Transaction  @relation(fields: [transactionId], references: [id])
+  items       RefundItem[]
+
+  @@map("refunds")
+}
+
+model RefundItem {
+  id        String @id @default(cuid())
+  refundId  String
+  productId String
+  quantity  Int
+  unitPrice Float
+  totalPrice Float
+
+  // Relations
+  refund Refund @relation(fields: [refundId], references: [id], onDelete: Cascade)
+
+  @@map("refund_items")
+}
+
+enum RefundStatus {
+  PENDING
+  APPROVED
+  REJECTED
+  COMPLETED
+}
+
+// Analytics and reporting
+model DailySales {
+  id               String   @id @default(cuid())
+  locationId       String
+  date             DateTime @db.Date
+  totalTransactions Int     @default(0)
+  totalRevenue     Float    @default(0.0)
+  totalTax         Float    @default(0.0)
+  totalDiscount    Float    @default(0.0)
+  averageOrderValue Float   @default(0.0)
+  createdAt        DateTime @default(now())
+  updatedAt        DateTime @updatedAt
+
+  @@unique([locationId, date])
+  @@map("daily_sales")
+}
+
+// AI/ML model metadata
+model AIModel {
+  id          String    @id @default(cuid())
+  name        String
+  type        ModelType
+  version     String
+  productId   String?
+  locationId  String?
+  accuracy    Float?
+  lastTrained DateTime?
+  isActive    Boolean   @default(true)
+  metadata    Json?
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+
+  @@map("ai_models")
+}
+
+enum ModelType {
+  DEMAND_FORECAST
+  PRICE_OPTIMIZATION
+  INVENTORY_OPTIMIZATION
+  ANOMALY_DETECTION
+}
+
+// Audit logging
+model AuditLog {
+  id         String    @id @default(cuid())
+  userId     String?
+  locationId String?
+  action     String
+  resource   String
+  resourceId String?
+  oldValues  Json?
+  newValues  Json?
+  ipAddress  String?
+  userAgent  String?
+  timestamp  DateTime  @default(now())
+
+  // Relations
+  user     User?     @relation(fields: [userId], references: [id])
+  location Location? @relation(fields: [locationId], references: [id])
+
+  @@map("audit_logs")
+}
+
+// System configuration
+model SystemConfig {
+  id        String   @id @default(cuid())
+  key       String   @unique
+  value     String
+  category  String?
+  description String?
+  isActive  Boolean  @default(true)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@map("system_config")
+}
