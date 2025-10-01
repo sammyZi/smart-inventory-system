@@ -61,47 +61,63 @@ async function seedDatabase() {
 
     console.log('✅ Locations created');
 
-    // Create admin user
-    console.log('\n👤 Creating admin user...');
+    // Create tenant 1 (Alice's Business)
+    console.log('\n👤 Creating Tenant 1 - Alice\'s Business...');
     
     try {
-      // Create Firebase user for admin
-      const adminFirebaseUser = await FirebaseAuthService.createUser({
-        email: 'admin@smartinventory.com',
-        password: 'admin123456',
-        displayName: 'System Administrator',
+      // Create Firebase user for Alice
+      const aliceFirebaseUser = await FirebaseAuthService.createUser({
+        email: 'alice@alicestores.com',
+        password: 'alice123456',
+        displayName: 'Alice Johnson',
         disabled: false
       });
 
-      // Set admin custom claims
-      await FirebaseAuthService.setCustomClaims(adminFirebaseUser.uid, {
-        role: 'ADMIN',
-        locationId: mainStore.id
-      });
-
-      // Create admin in database
-      const adminUser = await prisma.user.upsert({
-        where: { email: 'admin@smartinventory.com' },
+      // Create Alice as admin (tenant)
+      const aliceAdmin = await prisma.user.upsert({
+        where: { email: 'alice@alicestores.com' },
         update: {},
         create: {
           id: generateId(),
-          firebaseUid: adminFirebaseUser.uid,
-          email: 'admin@smartinventory.com',
-          firstName: 'System',
-          lastName: 'Administrator',
+          firebaseUid: aliceFirebaseUser.uid,
+          email: 'alice@alicestores.com',
+          firstName: 'Alice',
+          lastName: 'Johnson',
           role: UserRole.ADMIN,
-          locationId: mainStore.id,
+          createdById: null, // Tenant admin
           isActive: true
         }
       });
 
-      console.log('✅ Admin user created');
-      console.log('Email: admin@smartinventory.com');
-      console.log('Password: admin123456');
+      // Create Alice's main store
+      const aliceStore = await prisma.location.upsert({
+        where: { id: 'alice-main-store' },
+        update: {},
+        create: {
+          id: 'alice-main-store',
+          name: 'Alice\'s Main Store',
+          address: '123 Business Ave',
+          city: 'New York',
+          state: 'NY',
+          adminId: aliceAdmin.id,
+          phone: '+1-555-0100',
+          email: 'store@alicestores.com'
+        }
+      });
+
+      // Update Alice's location
+      await prisma.user.update({
+        where: { id: aliceAdmin.id },
+        data: { locationId: aliceStore.id }
+      });
+
+      console.log('✅ Tenant 1 created');
+      console.log('Email: alice@alicestores.com');
+      console.log('Password: alice123456');
 
     } catch (error) {
       if (error.message.includes('already exists')) {
-        console.log('⚠️ Admin user already exists');
+        console.log('⚠️ Tenant 1 already exists');
       } else {
         throw error;
       }

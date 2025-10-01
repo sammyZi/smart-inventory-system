@@ -3,7 +3,7 @@ import { logger } from '../utils/logger';
 import { AuthenticatedRequest } from '../types';
 
 // Security headers middleware
-export const securityHeaders = (req: Request, res: Response, next: NextFunction) => {
+export const securityHeaders = (_req: Request, res: Response, next: NextFunction) => {
   // Content Security Policy
   res.setHeader('Content-Security-Policy', 
     "default-src 'self'; " +
@@ -36,7 +36,7 @@ export const securityHeaders = (req: Request, res: Response, next: NextFunction)
 };
 
 // Request sanitization middleware
-export const sanitizeInput = (req: Request, res: Response, next: NextFunction) => {
+export const sanitizeInput = (req: Request, _res: Response, next: NextFunction) => {
   // Sanitize common XSS patterns
   const sanitizeValue = (value: any): any => {
     if (typeof value === 'string') {

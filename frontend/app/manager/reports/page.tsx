@@ -230,9 +230,9 @@ export default function ManagerReportsPage() {
                         <TableCell className="font-semibold">₹{product.revenue.toLocaleString()}</TableCell>
                         <TableCell>
                           <Badge 
-                            variant={product.quantity === 0 ? "destructive" : product.quantity < 20 ? "secondary" : "default"}
+                            variant={product.stock === 0 ? "destructive" : product.stock < 20 ? "secondary" : "default"}
                           >
-                            {product.quantity} units
+                            {product.stock} units
                           </Badge>
                         </TableCell>
                       </TableRow>

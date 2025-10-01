@@ -14,15 +14,21 @@ export async function initializeFirebase() {
       return;
     }
 
-    // Initialize Firebase Admin SDK
+    // Check if Firebase configuration is provided
     const serviceAccount = {
       projectId: process.env.FIREBASE_PROJECT_ID,
       privateKey: process.env.FIREBASE_PRIVATE_KEY?.replace(/\\n/g, '\n'),
       clientEmail: process.env.FIREBASE_CLIENT_EMAIL,
     };
 
-    if (!serviceAccount.projectId || !serviceAccount.privateKey || !serviceAccount.clientEmail) {
-      throw new Error('Missing Firebase configuration. Please check your environment variables.');
+    // Skip Firebase if configuration is missing or invalid
+    if (!serviceAccount.projectId || 
+        !serviceAccount.privateKey || 
+        !serviceAccount.clientEmail ||
+        serviceAccount.projectId === 'your-firebase-project-id' ||
+        serviceAccount.privateKey.includes('your-firebase-private-key')) {
+      logger.info('⚠️ Firebase configuration not provided - running without Firebase Auth');
+      return;
     }
 
     firebaseApp = admin.initializeApp({

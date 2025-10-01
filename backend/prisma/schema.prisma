@@ -10,22 +10,26 @@ datasource db {
   url      = env("DATABASE_URL")
 }
 
-// User management
+// User management with multi-tenant support
 model User {
   id          String   @id @default(cuid())
-  firebaseUid String   @unique
+  firebaseUid String?  @unique
   email       String   @unique
   firstName   String?
   lastName    String?
   phone       String?
   role        UserRole @default(STAFF)
   locationId  String?
+  createdById String?        // Admin who created this user (for multi-tenant)
   isActive    Boolean  @default(true)
   createdAt   DateTime @default(now())
   updatedAt   DateTime @updatedAt
 
   // Relations
   location     Location?     @relation(fields: [locationId], references: [id])
+  createdBy    User?         @relation("AdminCreatedUsers", fields: [createdById], references: [id])
+  subUsers     User[]        @relation("AdminCreatedUsers")
+  ownedLocations Location[]  @relation("AdminOwnedLocations")
   transactions Transaction[]
   auditLogs    AuditLog[]
 
@@ -39,7 +43,7 @@ enum UserRole {
   CUSTOMER
 }
 
-// Location/Store management
+// Location/Store management with admin ownership
 model Location {
   id          String  @id @default(cuid())
   name        String
@@ -50,6 +54,7 @@ model Location {
   country     String?
   phone       String?
   email       String?
+  adminId     String         // Admin who owns this location
   isActive    Boolean @default(true)
   timezone    String  @default("UTC")
   currency    String  @default("USD")
@@ -58,6 +63,7 @@ model Location {
   updatedAt   DateTime @updatedAt
 
   // Relations
+  admin        User          @relation("AdminOwnedLocations", fields: [adminId], references: [id])
   users        User[]
   transactions Transaction[]
   auditLogs    AuditLog[]

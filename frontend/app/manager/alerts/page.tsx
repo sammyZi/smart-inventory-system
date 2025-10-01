@@ -69,24 +69,24 @@ export default function ManagerAlertsPage() {
     const now = new Date()
 
     // Low stock alerts
-    sampleProducts.filter(product => product.quantity < 20 && product.quantity > 0).forEach(product => {
+    sampleProducts.filter(product => product.stock < 20 && product.stock > 0).forEach(product => {
       alertList.push({
         id: `low_stock_${product.id}`,
         type: "low_stock",
         title: "Low Stock Alert",
         message: `${product.name} is running low on stock`,
-        severity: product.quantity < 10 ? "critical" : "warning",
+        severity: product.stock < 10 ? "critical" : "warning",
         createdAt: new Date(now.getTime() - Math.random() * 7 * 24 * 60 * 60 * 1000),
         isRead: Math.random() > 0.3,
         productId: product.id,
         productName: product.name,
-        currentStock: product.quantity,
+        currentStock: product.stock,
         recommendedAction: "Reorder immediately"
       })
     })
 
     // Out of stock alerts
-    sampleProducts.filter(product => product.quantity === 0).forEach(product => {
+    sampleProducts.filter(product => product.stock === 0).forEach(product => {
       alertList.push({
         id: `out_of_stock_${product.id}`,
         type: "out_of_stock",
@@ -124,13 +124,13 @@ export default function ManagerAlertsPage() {
         isRead: Math.random() > 0.5,
         productId: product.id,
         productName: product.name,
-        currentStock: product.quantity,
+        currentStock: product.stock,
         recommendedAction: "Consider increasing stock levels"
       })
     })
 
     // Reorder alerts
-    sampleProducts.filter(product => product.quantity < 15).slice(0, 5).forEach(product => {
+    sampleProducts.filter(product => product.stock < 15).slice(0, 5).forEach(product => {
       alertList.push({
         id: `reorder_${product.id}`,
         type: "reorder",
@@ -141,7 +141,7 @@ export default function ManagerAlertsPage() {
         isRead: Math.random() > 0.4,
         productId: product.id,
         productName: product.name,
-        currentStock: product.quantity,
+        currentStock: product.stock,
         recommendedAction: "Place reorder within 7 days"
       })
     })

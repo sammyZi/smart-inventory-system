@@ -1,7 +1,7 @@
 import express from 'express';
 import cors from 'cors';
 import helmet from 'helmet';
-import rateLimit from 'express-rate-limit';
+
 import dotenv from 'dotenv';
 import { createServer } from 'http';
 import { Server } from 'socket.io';
@@ -82,9 +82,13 @@ app.get('/health', (req, res) => {
 
 // Import routes
 import authRoutes from './routes/auth';
+import tenantRoutes from './routes/tenant';
+import testRoutes from './routes/test';
 
 // API routes
 app.use('/api/v1/auth', authRoutes);
+app.use('/api/v1/tenant', tenantRoutes);
+app.use('/api/v1/test', testRoutes);
 
 // API info endpoint
 app.get('/api/v1', (req, res) => {

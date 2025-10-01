@@ -3,10 +3,7 @@
   "version": "1.0.0",
   "description": "Smart Inventory & Billing Management System - Full Stack Application",
   "private": true,
-  "workspaces": [
-    "frontend",
-    "backend"
-  ],
+
   "scripts": {
     "install:frontend": "cd frontend && npm install",
     "install:backend": "cd backend && npm install",

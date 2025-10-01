@@ -5,8 +5,16 @@ let redisClient: RedisClientType;
 
 export async function connectRedis() {
   try {
+    const redisUrl = process.env.REDIS_URL;
+    
+    // Skip Redis if URL is not provided
+    if (!redisUrl || redisUrl.trim() === '') {
+      logger.info('⚠️ Redis URL not provided - running without Redis cache');
+      return;
+    }
+
     redisClient = createClient({
-      url: process.env.REDIS_URL || 'redis://localhost:6379',
+      url: redisUrl,
       socket: {
         reconnectStrategy: (retries) => {
           if (retries > 10) {

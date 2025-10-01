@@ -8,7 +8,7 @@ export interface AuthenticatedRequest extends Request {
     firebaseUid: string;
     email: string;
     role: UserRole;
-    locationId?: string;
+    locationId?: string | undefined;
   };
 }
 
@@ -159,7 +159,7 @@ export interface JWTPayload {
   firebaseUid: string;
   email: string;
   role: UserRole;
-  locationId?: string;
+  locationId?: string | undefined;
   iat: number;
   exp: number;
 }

@@ -25,13 +25,15 @@ const createRateLimiter = (options: {
     legacyHeaders: false,
     skipSuccessfulRequests: options.skipSuccessfulRequests || false,
     keyGenerator: options.keyGenerator || ((req: Request) => req.ip),
-    onLimitReached: (req: Request, res: Response) => {
+    // onLimitReached is deprecated in v7 - using handler instead
+    handler: (req: Request, res: Response) => {
       logger.warn('Rate limit exceeded', {
         ip: req.ip,
         path: req.path,
         method: req.method,
         userAgent: req.get('User-Agent')
       });
+      res.status(429).json(options.message);
     }
   });
 };

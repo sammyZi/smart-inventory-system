@@ -48,9 +48,9 @@ export default function ManagerStockPage() {
     product.category.toLowerCase().includes(searchTerm.toLowerCase())
   )
 
-  const lowStockProducts = filteredProducts.filter(product => product.quantity < 20)
-  const outOfStockProducts = filteredProducts.filter(product => product.quantity === 0)
-  const totalStockValue = filteredProducts.reduce((sum, product) => sum + (product.price * product.quantity), 0)
+  const lowStockProducts = filteredProducts.filter(product => product.stock < 20)
+  const outOfStockProducts = filteredProducts.filter(product => product.stock === 0)
+  const totalStockValue = filteredProducts.reduce((sum, product) => sum + (product.price * product.stock), 0)
 
   const handleStockAdjustment = () => {
     if (!selectedProduct || !adjustmentQuantity) return
@@ -202,11 +202,11 @@ export default function ManagerStockPage() {
                       </TableCell>
                       <TableCell className="font-mono">{product.sku}</TableCell>
                       <TableCell>{product.category}</TableCell>
-                      <TableCell className="font-semibold">{product.quantity}</TableCell>
+                      <TableCell className="font-semibold">{product.stock}</TableCell>
                       <TableCell>
-                        {product.quantity === 0 ? (
+                        {product.stock === 0 ? (
                           <Badge variant="destructive">Out of Stock</Badge>
-                        ) : product.quantity < 20 ? (
+                        ) : product.stock < 20 ? (
                           <Badge variant="secondary" className="bg-orange-100 text-orange-800">Low Stock</Badge>
                         ) : (
                           <Badge className="bg-green-100 text-green-800">In Stock</Badge>
@@ -214,7 +214,7 @@ export default function ManagerStockPage() {
                       </TableCell>
                       <TableCell>₹{product.price.toLocaleString()}</TableCell>
                       <TableCell className="font-semibold">
-                        ₹{(product.price * product.quantity).toLocaleString()}
+                        ₹{(product.price * product.stock).toLocaleString()}
                       </TableCell>
                       <TableCell className="text-right">
                         <div className="flex justify-end space-x-2">
@@ -229,7 +229,7 @@ export default function ManagerStockPage() {
                             variant="ghost" 
                             size="sm" 
                             onClick={() => openAdjustmentDialog(product, "decrease")}
-                            disabled={product.quantity === 0}
+                            disabled={product.stock === 0}
                           >
                             <Minus className="h-4 w-4" />
                           </Button>

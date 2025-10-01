@@ -7,6 +7,7 @@ import { SessionService } from './sessionService';
 import { logger } from '../utils/logger';
 import { AppError } from '../middleware/errorHandler';
 import { generateId } from '../utils/helpers';
+import { getErrorMessage } from '../utils/errorHandler';
 
 export interface LoginCredentials {
   email: string;
@@ -143,7 +144,7 @@ export class AuthServiceV2 {
         }
       };
     } catch (error) {
-      logger.error('Enhanced login failed', { email, error: error.message, ipAddress });
+      logger.error('Enhanced login failed', { email, error: getErrorMessage(error), ipAddress });
       throw error;
     }
   }
@@ -365,5 +366,4 @@ export class AuthServiceV2 {
   }
 }
 
-// Import jwt for refresh token verification
 import jwt from 'jsonwebtoken';

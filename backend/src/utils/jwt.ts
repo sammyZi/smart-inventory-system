@@ -2,6 +2,7 @@ import jwt from 'jsonwebtoken';
 import { UserRole } from '@prisma/client';
 import { JWTPayload } from '../types';
 import { logger } from './logger';
+import { getErrorMessage } from './errorHandler';
 
 export interface TokenPair {
   accessToken: string;
@@ -49,7 +50,7 @@ export const generateAccessToken = (
     firebaseUid,
     email,
     role,
-    locationId
+    locationId: locationId ?? undefined
   };
 
   // Short-lived access tokens for security
@@ -59,7 +60,7 @@ export const generateAccessToken = (
     expiresIn,
     issuer: 'smart-inventory-api',
     audience: 'smart-inventory-client'
-  });
+  } as jwt.SignOptions);
 };
 
 // Generate JWT refresh token with role-based expiration
@@ -81,7 +82,7 @@ export const generateRefreshToken = (
     expiresIn,
     issuer: 'smart-inventory-api',
     audience: 'smart-inventory-client'
-  });
+  } as jwt.SignOptions);
 };
 
 // Generate both access and refresh tokens
@@ -121,7 +122,7 @@ export const verifyAccessToken = (token: string): JWTPayload => {
       audience: 'smart-inventory-client'
     }) as JWTPayload;
   } catch (error) {
-    logger.error('Access token verification failed:', error);
+    logger.error('Access token verification failed:', getErrorMessage(error));
     throw error;
   }
 };
@@ -134,7 +135,7 @@ export const verifyRefreshToken = (token: string): RefreshTokenPayload => {
       audience: 'smart-inventory-client'
     }) as RefreshTokenPayload;
   } catch (error) {
-    logger.error('Refresh token verification failed:', error);
+    logger.error('Refresh token verification failed:', getErrorMessage(error));
     throw error;
   }
 };

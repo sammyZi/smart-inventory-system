@@ -1,10 +1,9 @@
-import bcrypt from 'bcryptjs';
 import { UserRole } from '@prisma/client';
 import { prisma } from '../config/database';
 import { FirebaseAuthService } from '../config/firebase';
 import { generateTokenPair, TokenPair } from '../utils/jwt';
 import { CacheService } from '../config/redis';
-import { SessionService } from './sessionService';
+
 import { logger } from '../utils/logger';
 import { AppError } from '../middleware/errorHandler';
 import { generateId } from '../utils/helpers';
@@ -30,21 +29,21 @@ export interface AuthResult {
   user: {
     id: string;
     email: string;
-    firstName?: string;
-    lastName?: string;
+    firstName?: string | undefined;
+    lastName?: string | undefined;
     role: UserRole;
-    locationId?: string;
+    locationId?: string | undefined;
     isActive: boolean;
   };
   tokens: TokenPair;
-  sessionId: string;
-  expiresAt: string;
+  sessionId?: string | undefined;
+  expiresAt?: string | undefined;
 }
 
 export class AuthService {
   // Login with email and password
-  static async login(credentials: LoginCredentials, ipAddress?: string, userAgent?: string): Promise<AuthResult> {
-    const { email, password, rememberMe = false, deviceId } = credentials;
+  static async login(credentials: LoginCredentials, _ipAddress?: string, _userAgent?: string): Promise<AuthResult> {
+    const { email } = credentials;
 
     try {
       // Find user by email
@@ -75,7 +74,7 @@ export class AuthService {
       // Generate tokens
       const tokens = generateTokenPair(
         user.id,
-        user.firebaseUid,
+        user.firebaseUid || '',
         user.email,
         user.role,
         user.locationId || undefined
@@ -106,16 +105,18 @@ export class AuthService {
         user: {
           id: user.id,
           email: user.email,
-          firstName: user.firstName || undefined,
-          lastName: user.lastName || undefined,
+          firstName: user.firstName ?? undefined,
+          lastName: user.lastName ?? undefined,
           role: user.role,
-          locationId: user.locationId || undefined,
+          locationId: user.locationId ?? undefined,
           isActive: user.isActive
         },
-        tokens
+        tokens,
+        sessionId: undefined,
+        expiresAt: undefined
       };
     } catch (error) {
-      logger.error('Login failed', { email, error: error.message });
+      logger.error('Login failed', { email, error: error instanceof Error ? error.message : String(error) });
       throw error;
     }
   }
@@ -134,16 +135,24 @@ export class AuthService {
 
       if (!user) {
         // Create new user from Firebase token
+        const createData: any = {
+          id: generateId(),
+          firebaseUid: decodedToken.uid,
+          email: decodedToken.email!,
+          role: UserRole.CUSTOMER, // Default role for Firebase users
+          isActive: true
+        };
+
+        // Only add optional fields if they have values
+        if (decodedToken.name?.split(' ')[0]) {
+          createData.firstName = decodedToken.name.split(' ')[0];
+        }
+        if (decodedToken.name?.split(' ').slice(1).join(' ')) {
+          createData.lastName = decodedToken.name.split(' ').slice(1).join(' ');
+        }
+
         user = await prisma.user.create({
-          data: {
-            id: generateId(),
-            firebaseUid: decodedToken.uid,
-            email: decodedToken.email!,
-            firstName: decodedToken.name?.split(' ')[0],
-            lastName: decodedToken.name?.split(' ').slice(1).join(' '),
-            role: UserRole.CUSTOMER, // Default role for Firebase users
-            isActive: true
-          },
+          data: createData,
           include: { location: true }
         });
 
@@ -161,7 +170,7 @@ export class AuthService {
       // Generate tokens
       const tokens = generateTokenPair(
         user.id,
-        user.firebaseUid,
+        user.firebaseUid || '',
         user.email,
         user.role,
         user.locationId || undefined
@@ -190,23 +199,25 @@ export class AuthService {
         user: {
           id: user.id,
           email: user.email,
-          firstName: user.firstName || undefined,
-          lastName: user.lastName || undefined,
+          firstName: user.firstName ?? undefined,
+          lastName: user.lastName ?? undefined,
           role: user.role,
-          locationId: user.locationId || undefined,
+          locationId: user.locationId ?? undefined,
           isActive: user.isActive
         },
-        tokens
+        tokens,
+        sessionId: undefined,
+        expiresAt: undefined
       };
     } catch (error) {
-      logger.error('Firebase login failed', { error: error.message });
+      logger.error('Firebase login failed', { error: error instanceof Error ? error.message : String(error) });
       throw new AppError('Firebase authentication failed', 401, 'FIREBASE_AUTH_FAILED');
     }
   }
 
-  // Register new user
+  // Register new user (can be admin for tenant creation or staff)
   static async register(userData: RegisterData): Promise<AuthResult> {
-    const { email, password, firstName, lastName, phone, role = UserRole.STAFF, locationId } = userData;
+    const { email, password, firstName, lastName, phone, role = UserRole.ADMIN, locationId } = userData;
 
     try {
       // Check if user already exists
@@ -233,25 +244,29 @@ export class AuthService {
       });
 
       // Create user in database
+      const createData: any = {
+        id: generateId(),
+        firebaseUid: firebaseUser.uid,
+        email: email.toLowerCase(),
+        role,
+        isActive: true
+      };
+
+      // Only add optional fields if they have values
+      if (firstName) createData.firstName = firstName;
+      if (lastName) createData.lastName = lastName;
+      if (phone) createData.phone = phone;
+      if (locationId) createData.locationId = locationId;
+
       const user = await prisma.user.create({
-        data: {
-          id: generateId(),
-          firebaseUid: firebaseUser.uid,
-          email: email.toLowerCase(),
-          firstName,
-          lastName,
-          phone,
-          role,
-          locationId,
-          isActive: true
-        },
+        data: createData,
         include: { location: true }
       });
 
       // Generate tokens
       const tokens = generateTokenPair(
         user.id,
-        user.firebaseUid,
+        user.firebaseUid || '',
         user.email,
         user.role,
         user.locationId || undefined
@@ -268,22 +283,24 @@ export class AuthService {
         user: {
           id: user.id,
           email: user.email,
-          firstName: user.firstName || undefined,
-          lastName: user.lastName || undefined,
+          firstName: user.firstName ?? undefined,
+          lastName: user.lastName ?? undefined,
           role: user.role,
-          locationId: user.locationId || undefined,
+          locationId: user.locationId ?? undefined,
           isActive: user.isActive
         },
-        tokens
+        tokens,
+        sessionId: undefined,
+        expiresAt: undefined
       };
     } catch (error) {
-      logger.error('Registration failed', { email, error: error.message });
+      logger.error('Registration failed', { email, error: error instanceof Error ? error.message : String(error) });
       throw error;
     }
   }
 
   // Logout user
-  static async logout(userId: string, accessToken: string): Promise<void> {
+  static async logout(userId: string, _accessToken: string): Promise<void> {
     try {
       // Remove user session from cache
       await CacheService.del(`user_session:${userId}`);
@@ -293,21 +310,21 @@ export class AuthService {
 
       logger.info('User logged out successfully', { userId });
     } catch (error) {
-      logger.error('Logout failed', { userId, error: error.message });
+      logger.error('Logout failed', { userId, error: error instanceof Error ? error.message : String(error) });
       throw error;
     }
   }
 
   // Refresh access token
-  static async refreshToken(refreshToken: string): Promise<TokenPair> {
+  static async refreshToken(_refreshToken: string): Promise<TokenPair> {
     try {
       // This would typically involve verifying the refresh token
       // and generating a new access token
       // Implementation depends on your refresh token strategy
-      
+
       throw new AppError('Refresh token functionality not implemented', 501, 'NOT_IMPLEMENTED');
     } catch (error) {
-      logger.error('Token refresh failed', { error: error.message });
+      logger.error('Token refresh failed', { error: error instanceof Error ? error.message : String(error) });
       throw error;
     }
   }
@@ -317,7 +334,6 @@ export class AuthService {
     try {
       const user = await prisma.user.findUnique({
         where: { id: userId },
-        include: { location: true },
         select: {
           id: true,
           email: true,
@@ -346,7 +362,7 @@ export class AuthService {
 
       return user;
     } catch (error) {
-      logger.error('Get profile failed', { userId, error: error.message });
+      logger.error('Get profile failed', { userId, error: error instanceof Error ? error.message : String(error) });
       throw error;
     }
   }
@@ -378,7 +394,7 @@ export class AuthService {
 
       return user;
     } catch (error) {
-      logger.error('Profile update failed', { userId, error: error.message });
+      logger.error('Profile update failed', { userId, error: error instanceof Error ? error.message : String(error) });
       throw error;
     }
   }
@@ -395,13 +411,15 @@ export class AuthService {
       }
 
       // Update password in Firebase
-      await FirebaseAuthService.updateUser(user.firebaseUid, {
-        password: newPassword
-      });
+      if (user.firebaseUid) {
+        await FirebaseAuthService.updateUser(user.firebaseUid, {
+          password: newPassword
+        });
+      }
 
       logger.info('User password changed', { userId });
     } catch (error) {
-      logger.error('Password change failed', { userId, error: error.message });
+      logger.error('Password change failed', { userId, error: error instanceof Error ? error.message : String(error) });
       throw error;
     }
   }

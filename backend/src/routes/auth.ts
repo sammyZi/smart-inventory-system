@@ -5,16 +5,11 @@ import { validate } from '../utils/validation';
 import { asyncHandler } from '../middleware/errorHandler';
 import { createResponse } from '../utils/helpers';
 import { logger } from '../utils/logger';
-import { loginRateLimit, registerRateLimit, passwordResetRateLimit } from '../middleware/rateLimiter';
+import { loginRateLimit } from '../middleware/rateLimiter';
 import { handleTokenRefresh } from '../middleware/tokenRefresh';
 import { auditAuth } from '../middleware/auditLogger';
 import Joi from 'joi';
 import { AuthenticatedRequest } from '../types';
-import { AuthService } from '../services/authService';
-import { AuthService } from '../services/authService';
-import { AuthService } from '../services/authService';
-import { AuthService } from '../services/authService';
-import { AuthService } from '../services/authService';
 import { AuthService } from '../services/authService';
 
 const router = express.Router();
@@ -58,7 +53,7 @@ router.post('/login',
   loginRateLimit,
   auditAuth('LOGIN'),
   validate(loginSchema), 
-  asyncHandler(async (req, res) => {
+  asyncHandler(async (req: express.Request, res: express.Response) => {
     const { email, password, rememberMe, deviceId } = req.body;
 
     logger.info('Enhanced login attempt', { 
@@ -93,7 +88,7 @@ router.post('/login',
 }));
 
 // POST /api/v1/auth/firebase-login - Login with Firebase ID token
-router.post('/firebase-login', validate(firebaseLoginSchema), asyncHandler(async (req, res) => {
+router.post('/firebase-login', validate(firebaseLoginSchema), asyncHandler(async (req: express.Request, res: express.Response) => {
   const { idToken } = req.body;
 
   logger.info('Firebase login attempt', { ip: req.ip });
@@ -115,7 +110,7 @@ router.post('/firebase-login', validate(firebaseLoginSchema), asyncHandler(async
 }));
 
 // POST /api/v1/auth/register - Register new user
-router.post('/register', validate(registerSchema), asyncHandler(async (req, res) => {
+router.post('/register', validate(registerSchema), asyncHandler(async (req: express.Request, res: express.Response) => {
   const userData = req.body;
 
   logger.info('Registration attempt', { email: userData.email, ip: req.ip });
@@ -137,7 +132,7 @@ router.post('/register', validate(registerSchema), asyncHandler(async (req, res)
 }));
 
 // POST /api/v1/auth/logout - Logout user
-router.post('/logout', authenticateJWT, asyncHandler(async (req: AuthenticatedRequest, res) => {
+router.post('/logout', authenticateJWT, asyncHandler(async (req: AuthenticatedRequest, res: express.Response) => {
   const userId = req.user!.id;
   const accessToken = req.headers.authorization!.substring(7);
 
@@ -153,7 +148,7 @@ router.post('/logout', authenticateJWT, asyncHandler(async (req: AuthenticatedRe
 router.post('/refresh', handleTokenRefresh);
 
 // GET /api/v1/auth/profile - Get user profile
-router.get('/profile', authenticateJWT, asyncHandler(async (req: AuthenticatedRequest, res) => {
+router.get('/profile', authenticateJWT, asyncHandler(async (req: AuthenticatedRequest, res: express.Response) => {
   const userId = req.user!.id;
 
   const profile = await AuthService.getProfile(userId);
@@ -162,7 +157,7 @@ router.get('/profile', authenticateJWT, asyncHandler(async (req: AuthenticatedRe
 }));
 
 // PUT /api/v1/auth/profile - Update user profile
-router.put('/profile', authenticateJWT, validate(updateProfileSchema), asyncHandler(async (req: AuthenticatedRequest, res) => {
+router.put('/profile', authenticateJWT, validate(updateProfileSchema), asyncHandler(async (req: AuthenticatedRequest, res: express.Response) => {
   const userId = req.user!.id;
   const updateData = req.body;
 
@@ -172,7 +167,7 @@ router.put('/profile', authenticateJWT, validate(updateProfileSchema), asyncHand
 }));
 
 // POST /api/v1/auth/change-password - Change user password
-router.post('/change-password', authenticateJWT, validate(changePasswordSchema), asyncHandler(async (req: AuthenticatedRequest, res) => {
+router.post('/change-password', authenticateJWT, validate(changePasswordSchema), asyncHandler(async (req: AuthenticatedRequest, res: express.Response) => {
   const userId = req.user!.id;
   const { newPassword } = req.body;
 
@@ -182,7 +177,7 @@ router.post('/change-password', authenticateJWT, validate(changePasswordSchema),
 }));
 
 // GET /api/v1/auth/verify - Verify token validity
-router.get('/verify', authenticateJWT, asyncHandler(async (req: AuthenticatedRequest, res) => {
+router.get('/verify', authenticateJWT, asyncHandler(async (req: AuthenticatedRequest, res: express.Response) => {
   res.json(createResponse({
     valid: true,
     user: {
@@ -195,7 +190,7 @@ router.get('/verify', authenticateJWT, asyncHandler(async (req: AuthenticatedReq
 }));
 
 // GET /api/v1/auth/me - Get current user info (alternative to profile)
-router.get('/me', authenticateJWT, asyncHandler(async (req: AuthenticatedRequest, res) => {
+router.get('/me', authenticateJWT, asyncHandler(async (req: AuthenticatedRequest, res: express.Response) => {
   res.json(createResponse({
     id: req.user!.id,
     email: req.user!.email,
