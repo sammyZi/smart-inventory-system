@@ -63,10 +63,16 @@ model Location {
   updatedAt   DateTime @updatedAt
 
   // Relations
-  admin        User          @relation("AdminOwnedLocations", fields: [adminId], references: [id])
-  users        User[]
-  transactions Transaction[]
-  auditLogs    AuditLog[]
+  admin           User            @relation("AdminOwnedLocations", fields: [adminId], references: [id])
+  users           User[]
+  transactions    Transaction[]
+  auditLogs       AuditLog[]
+  stockLevels     StockLevel[]
+  stockMovements  StockMovement[]
+  transfersFrom   StockTransfer[] @relation("TransferFrom")
+  transfersTo     StockTransfer[] @relation("TransferTo")
+  iotSensors      IoTSensor[]
+  purchaseOrders  PurchaseOrder[]
 
   @@map("locations")
 }
@@ -114,6 +120,7 @@ model TransactionItem {
 
   // Relations
   transaction Transaction @relation(fields: [transactionId], references: [id], onDelete: Cascade)
+  product     Product     @relation(fields: [productId], references: [id])
 
   @@map("transaction_items")
 }
@@ -173,7 +180,8 @@ model RefundItem {
   totalPrice Float
 
   // Relations
-  refund Refund @relation(fields: [refundId], references: [id], onDelete: Cascade)
+  refund  Refund  @relation(fields: [refundId], references: [id], onDelete: Cascade)
+  product Product @relation(fields: [productId], references: [id])
 
   @@map("refund_items")
 }
@@ -217,6 +225,9 @@ model AIModel {
   createdAt   DateTime  @default(now())
   updatedAt   DateTime  @updatedAt
 
+  // Relations
+  product  Product? @relation(fields: [productId], references: [id])
+
   @@map("ai_models")
 }
 
@@ -246,6 +257,358 @@ model AuditLog {
   location Location? @relation(fields: [locationId], references: [id])
 
   @@map("audit_logs")
+}
+
+// Product catalog management
+model Product {
+  id           String   @id @default(cuid())
+  sku          String   @unique
+  name         String
+  description  String?
+  category     String
+  brand        String?
+  price        Float
+  cost         Float?
+  weight       Float?
+  dimensions   Json?    // {length, width, height, unit}
+  trackingCodes Json?   // {qr, rfid, nfc, barcode}
+  specifications Json?  // Flexible product attributes
+  images       String[] // Array of image URLs
+  isActive     Boolean  @default(true)
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  // Relations
+  stockLevels      StockLevel[]
+  transactionItems TransactionItem[]
+  refundItems      RefundItem[]
+  stockMovements   StockMovement[]
+  supplyChainEvents SupplyChainEvent[]
+  aiModels         AIModel[]
+
+  @@map("products")
+}
+
+// Inventory stock levels per location
+model StockLevel {
+  id               String   @id @default(cuid())
+  productId        String
+  locationId       String
+  quantity         Int      @default(0)
+  reservedQuantity Int      @default(0)
+  minThreshold     Int      @default(0)
+  maxThreshold     Int?
+  reorderPoint     Int?
+  reorderQuantity  Int?
+  lastCountDate    DateTime?
+  lastUpdated      DateTime @default(now())
+  createdAt        DateTime @default(now())
+  updatedAt        DateTime @updatedAt
+
+  // Relations
+  product  Product  @relation(fields: [productId], references: [id])
+  location Location @relation(fields: [locationId], references: [id])
+
+  @@unique([productId, locationId])
+  @@map("stock_levels")
+}
+
+// Stock movement tracking
+model StockMovement {
+  id            String         @id @default(cuid())
+  productId     String
+  locationId    String
+  movementType  MovementType
+  quantity      Int
+  previousQty   Int
+  newQty        Int
+  reference     String?        // Transaction ID, Transfer ID, etc.
+  reason        String?
+  performedBy   String?
+  notes         String?
+  timestamp     DateTime       @default(now())
+
+  // Relations
+  product  Product  @relation(fields: [productId], references: [id])
+  location Location @relation(fields: [locationId], references: [id])
+
+  @@map("stock_movements")
+}
+
+enum MovementType {
+  SALE
+  PURCHASE
+  ADJUSTMENT
+  TRANSFER_IN
+  TRANSFER_OUT
+  RETURN
+  DAMAGE
+  THEFT
+  EXPIRED
+  COUNT_ADJUSTMENT
+}
+
+// Stock transfers between locations
+model StockTransfer {
+  id              String              @id @default(cuid())
+  transferNo      String              @unique
+  fromLocationId  String
+  toLocationId    String
+  status          TransferStatus      @default(PENDING)
+  requestedBy     String
+  approvedBy      String?
+  notes           String?
+  createdAt       DateTime            @default(now())
+  updatedAt       DateTime            @updatedAt
+  approvedAt      DateTime?
+  completedAt     DateTime?
+
+  // Relations
+  fromLocation Location           @relation("TransferFrom", fields: [fromLocationId], references: [id])
+  toLocation   Location           @relation("TransferTo", fields: [toLocationId], references: [id])
+  items        StockTransferItem[]
+
+  @@map("stock_transfers")
+}
+
+model StockTransferItem {
+  id               String  @id @default(cuid())
+  transferId       String
+  productId        String
+  requestedQty     Int
+  approvedQty      Int?
+  receivedQty      Int?
+  notes            String?
+
+  // Relations
+  transfer StockTransfer @relation(fields: [transferId], references: [id], onDelete: Cascade)
+
+  @@map("stock_transfer_items")
+}
+
+enum TransferStatus {
+  PENDING
+  APPROVED
+  IN_TRANSIT
+  COMPLETED
+  CANCELLED
+  REJECTED
+}
+
+// IoT Sensor management
+model IoTSensor {
+  id           String      @id @default(cuid())
+  deviceId     String      @unique
+  locationId   String
+  sensorType   SensorType
+  name         String
+  description  String?
+  position     Json?       // {x, y, z, zone}
+  configuration Json?      // Sensor-specific config
+  status       SensorStatus @default(ACTIVE)
+  lastReading  DateTime?
+  batteryLevel Float?
+  firmwareVersion String?
+  isActive     Boolean     @default(true)
+  createdAt    DateTime    @default(now())
+  updatedAt    DateTime    @updatedAt
+
+  // Relations
+  location Location        @relation(fields: [locationId], references: [id])
+  readings SensorReading[]
+  alerts   SensorAlert[]
+
+  @@map("iot_sensors")
+}
+
+model SensorReading {
+  id        String   @id @default(cuid())
+  sensorId  String
+  value     Float
+  unit      String
+  metadata  Json?    // Additional sensor data
+  quality   ReadingQuality @default(GOOD)
+  timestamp DateTime @default(now())
+
+  // Relations
+  sensor IoTSensor @relation(fields: [sensorId], references: [id])
+
+  @@map("sensor_readings")
+}
+
+model SensorAlert {
+  id          String      @id @default(cuid())
+  sensorId    String
+  alertType   AlertType
+  severity    AlertSeverity
+  message     String
+  threshold   Float?
+  actualValue Float?
+  isResolved  Boolean     @default(false)
+  resolvedBy  String?
+  resolvedAt  DateTime?
+  createdAt   DateTime    @default(now())
+
+  // Relations
+  sensor IoTSensor @relation(fields: [sensorId], references: [id])
+
+  @@map("sensor_alerts")
+}
+
+enum SensorType {
+  WEIGHT
+  TEMPERATURE
+  HUMIDITY
+  MOTION
+  RFID_READER
+  BARCODE_SCANNER
+  DOOR_SENSOR
+  LIGHT_SENSOR
+  PRESSURE
+  PROXIMITY
+}
+
+enum SensorStatus {
+  ACTIVE
+  INACTIVE
+  MAINTENANCE
+  ERROR
+  OFFLINE
+}
+
+enum ReadingQuality {
+  GOOD
+  FAIR
+  POOR
+  ERROR
+}
+
+enum AlertType {
+  THRESHOLD_EXCEEDED
+  THRESHOLD_BELOW
+  SENSOR_OFFLINE
+  BATTERY_LOW
+  CALIBRATION_NEEDED
+  MAINTENANCE_DUE
+  ANOMALY_DETECTED
+}
+
+enum AlertSeverity {
+  LOW
+  MEDIUM
+  HIGH
+  CRITICAL
+}
+
+// Blockchain supply chain tracking
+model SupplyChainEvent {
+  id              String    @id @default(cuid())
+  productId       String
+  eventType       EventType
+  location        String
+  actor           String
+  description     String?
+  metadata        Json?
+  blockchainTxHash String?
+  blockNumber     BigInt?
+  gasUsed         BigInt?
+  isVerified      Boolean   @default(false)
+  timestamp       DateTime  @default(now())
+  createdAt       DateTime  @default(now())
+
+  // Relations
+  product Product @relation(fields: [productId], references: [id])
+
+  @@map("supply_chain_events")
+}
+
+enum EventType {
+  MANUFACTURED
+  QUALITY_CHECK
+  SHIPPED
+  RECEIVED
+  STORED
+  SOLD
+  RETURNED
+  RECYCLED
+  DESTROYED
+}
+
+// Purchase orders and supplier management
+model Supplier {
+  id          String   @id @default(cuid())
+  name        String
+  contactName String?
+  email       String?
+  phone       String?
+  address     String?
+  city        String?
+  state       String?
+  zipCode     String?
+  country     String?
+  taxId       String?
+  paymentTerms String?
+  isActive    Boolean  @default(true)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  // Relations
+  purchaseOrders PurchaseOrder[]
+
+  @@map("suppliers")
+}
+
+model PurchaseOrder {
+  id           String            @id @default(cuid())
+  orderNo      String            @unique
+  supplierId   String
+  locationId   String
+  status       PurchaseOrderStatus @default(DRAFT)
+  subtotal     Float
+  taxAmount    Float
+  totalAmount  Float
+  notes        String?
+  expectedDate DateTime?
+  createdBy    String
+  approvedBy   String?
+  receivedBy   String?
+  createdAt    DateTime          @default(now())
+  updatedAt    DateTime          @updatedAt
+  approvedAt   DateTime?
+  receivedAt   DateTime?
+
+  // Relations
+  supplier Supplier           @relation(fields: [supplierId], references: [id])
+  location Location           @relation(fields: [locationId], references: [id])
+  items    PurchaseOrderItem[]
+
+  @@map("purchase_orders")
+}
+
+model PurchaseOrderItem {
+  id              String  @id @default(cuid())
+  purchaseOrderId String
+  productId       String
+  quantity        Int
+  unitCost        Float
+  totalCost       Float
+  receivedQty     Int     @default(0)
+  notes           String?
+
+  // Relations
+  purchaseOrder PurchaseOrder @relation(fields: [purchaseOrderId], references: [id], onDelete: Cascade)
+
+  @@map("purchase_order_items")
+}
+
+enum PurchaseOrderStatus {
+  DRAFT
+  PENDING_APPROVAL
+  APPROVED
+  SENT
+  PARTIALLY_RECEIVED
+  RECEIVED
+  CANCELLED
 }
 
 // System configuration
