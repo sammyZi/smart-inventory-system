@@ -94,6 +94,7 @@ import saasRoutes from './routes/saas';
 import inventoryRoutes from './routes/inventory';
 import realtimeRoutes from './routes/realtime';
 import billingRoutes from './routes/billing';
+import pricingRoutes from './routes/pricing';
 
 // API routes
 app.use('/api/v1/auth', authRoutes);
@@ -104,6 +105,7 @@ app.use('/api/v1/saas', saasRoutes);
 app.use('/api/v1/inventory', inventoryRoutes);
 app.use('/api/v1/realtime', realtimeRoutes);
 app.use('/api/v1/billing', billingRoutes);
+app.use('/api/v1/pricing', pricingRoutes);
 
 // API info endpoint
 app.get('/api/v1', (req, res) => {

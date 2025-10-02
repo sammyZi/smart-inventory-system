@@ -624,3 +624,84 @@ model SystemConfig {
 
   @@map("system_config")
 }
+
+// Tenant-specific discount rules
+model DiscountRule {
+  id          String   @id @default(cuid())
+  tenantId    String   // Admin user ID who owns this rule
+  name        String
+  description String?
+  type        DiscountType
+  value       Float    // Percentage or fixed amount
+  minAmount   Float?   // Minimum purchase amount
+  maxAmount   Float?   // Maximum discount amount
+  applicableProducts   String[] // Product IDs
+  applicableCategories String[] // Category names
+  validFrom   DateTime?
+  validTo     DateTime?
+  isActive    Boolean  @default(true)
+  usageLimit  Int?     // Max number of uses
+  usageCount  Int      @default(0)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  @@index([tenantId])
+  @@index([isActive])
+  @@map("discount_rules")
+}
+
+enum DiscountType {
+  PERCENTAGE
+  FIXED_AMOUNT
+  BUY_X_GET_Y
+}
+
+// Tenant-specific pricing rules
+model PricingRule {
+  id          String   @id @default(cuid())
+  tenantId    String   // Admin user ID who owns this rule
+  name        String
+  productId   String?  // Specific product or null for category
+  category    String?  // Product category
+  priceAdjustment Float // Percentage or fixed adjustment
+  adjustmentType PriceAdjustmentType
+  priority    Int      @default(0)
+  validFrom   DateTime?
+  validTo     DateTime?
+  isActive    Boolean  @default(true)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  @@index([tenantId])
+  @@index([productId])
+  @@index([isActive])
+  @@map("pricing_rules")
+}
+
+enum PriceAdjustmentType {
+  PERCENTAGE_INCREASE
+  PERCENTAGE_DECREASE
+  FIXED_INCREASE
+  FIXED_DECREASE
+  FIXED_PRICE
+}
+
+// Tenant branding configuration
+model TenantBranding {
+  id          String   @id @default(cuid())
+  tenantId    String   @unique // Admin user ID
+  companyName String
+  logo        String?  // URL to logo
+  primaryColor String? // Hex color
+  secondaryColor String? // Hex color
+  address     String?
+  phone       String?
+  email       String?
+  website     String?
+  taxNumber   String?
+  receiptFooter String? // Custom footer text
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  @@map("tenant_branding")
+}

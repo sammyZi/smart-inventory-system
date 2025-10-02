@@ -5,7 +5,6 @@
 
 import express, { Request, Response } from 'express';
 import { SaaSService } from '../services/saasService';
-import { SubscriptionService, SubscriptionPlan } from '../services/subscriptionService';
 import { authenticateJWT } from '../middleware/auth';
 import { requireAdmin } from '../middleware/tenantAuth';
 import { validate } from '../middleware/validation';
@@ -59,24 +58,24 @@ const createLocationSchema = Joi.object({
  * Register a new admin account (independent tenant)
  * This creates a completely separate tenant with their own data scope
  */
-router.post('/admin/signup', 
+router.post('/admin/signup',
   apiRateLimit,
   validate(adminSignupSchema),
-  auditCustomAction('ADMIN_SIGNUP'),
+  auditCustomAction('CREATE', 'ADMIN_SIGNUP'),
   async (req: Request, res: Response) => {
     try {
       const adminData = req.body;
-      
+
       // Create new admin tenant
       const result = await SaaSService.createAdminTenant(adminData);
-      
+
       logger.info('New admin tenant created:', {
         adminId: result.admin.id,
         email: result.admin.email,
         companyName: adminData.companyName
       });
 
-      res.status(201).json({
+      return res.status(201).json({
         success: true,
         message: 'Admin account created successfully',
         data: {
@@ -98,7 +97,7 @@ router.post('/admin/signup',
 
     } catch (error) {
       logger.error('Admin signup failed:', error);
-      
+
       if (error instanceof Error && error.message.includes('already exists')) {
         return res.status(409).json({
           success: false,
@@ -107,7 +106,7 @@ router.post('/admin/signup',
         });
       }
 
-      res.status(500).json({
+      return res.status(500).json({
         success: false,
         error: 'Signup failed',
         message: error instanceof Error ? error.message : 'Unknown error'
@@ -125,7 +124,7 @@ router.post('/locations',
   authenticateJWT,
   requireAdmin,
   validate(createLocationSchema),
-  auditCustomAction('CREATE_LOCATION'),
+  auditCustomAction('CREATE', 'LOCATION'),
   async (req: AuthenticatedRequest, res: Response) => {
     try {
       const locationData = req.body;
@@ -165,7 +164,7 @@ router.post('/staff',
   authenticateJWT,
   requireAdmin,
   validate(createStaffSchema),
-  auditCustomAction('CREATE_STAFF'),
+  auditCustomAction('CREATE', 'STAFF'),
   async (req: AuthenticatedRequest, res: Response) => {
     try {
       const staffData = req.body;
@@ -206,7 +205,7 @@ router.post('/staff',
 
     } catch (error) {
       logger.error('Staff creation failed:', error);
-      
+
       if (error instanceof Error && error.message.includes('already exists')) {
         return res.status(409).json({
           success: false,
@@ -263,7 +262,7 @@ router.get('/staff',
     try {
       const adminId = req.user!.id;
       const locationId = req.query.locationId as string;
-      
+
       const staff = await SaaSService.getAdminStaff(adminId, locationId);
 
       res.json({
@@ -304,6 +303,67 @@ router.get('/tenant/info',
       res.status(500).json({
         success: false,
         error: 'Failed to fetch tenant information',
+        message: error instanceof Error ? error.message : 'Unknown error'
+      });
+    }
+  }
+);
+
+/**
+ * GET /api/v1/saas/analytics
+ * Get advanced analytics for the tenant
+ */
+router.get('/analytics',
+  authenticateJWT,
+  requireAdmin,
+  async (req: AuthenticatedRequest, res: Response) => {
+    try {
+      const adminId = req.user!.id;
+      const period = (req.query.period as 'day' | 'week' | 'month' | 'year') || 'month';
+
+      const { AnalyticsService } = await import('../services/analyticsService');
+      const analytics = await AnalyticsService.generateTenantAnalytics(adminId, period);
+
+      res.json({
+        success: true,
+        data: analytics
+      });
+
+    } catch (error) {
+      logger.error('Failed to fetch analytics:', error);
+      res.status(500).json({
+        success: false,
+        error: 'Failed to fetch analytics',
+        message: error instanceof Error ? error.message : 'Unknown error'
+      });
+    }
+  }
+);
+
+/**
+ * GET /api/v1/saas/security/report
+ * Get security report for the tenant
+ */
+router.get('/security/report',
+  authenticateJWT,
+  requireAdmin,
+  async (req: AuthenticatedRequest, res: Response) => {
+    try {
+      const adminId = req.user!.id;
+
+      const { SecurityService } = await import('../services/securityService');
+      const securityReport = await SecurityService.generateSecurityReport(adminId);
+
+      res.json({
+        success: true,
+        data: securityReport
+      });
+
+    } catch (error) {
+      logger.error('Failed to fetch security report:', error);
+      res.status(500).json({
+        success: false,
+        error: 'Failed to fetch security report',
         message: error instanceof Error ? error.message : 'Unknown error'
       });
     }
