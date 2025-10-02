@@ -13,9 +13,11 @@ import { requestLogger } from './middleware/requestLogger';
 import { autoTokenRefresh } from './middleware/tokenRefresh';
 import { applySecurity } from './middleware/security';
 import { apiRateLimit } from './middleware/rateLimiter';
-import { connectDatabase } from './config/database';
+import { checkDatabaseConnection } from './config/database';
 import { connectRedis } from './config/redis';
 import { initializeFirebase } from './config/firebase';
+import { RealtimeService } from './services/realtimeService';
+import { EmailService } from './services/emailService';
 
 // Load environment variables
 dotenv.config();
@@ -61,6 +63,9 @@ app.use('/api/', apiRateLimit);
 app.use(express.json({ limit: '10mb' }));
 app.use(express.urlencoded({ extended: true, limit: '10mb' }));
 
+// Static file serving for uploads
+app.use('/uploads', express.static('uploads'));
+
 // Cookie parsing middleware (for refresh tokens)
 app.use(cookieParser());
 
@@ -84,11 +89,17 @@ app.get('/health', (req, res) => {
 import authRoutes from './routes/auth';
 import tenantRoutes from './routes/tenant';
 import testRoutes from './routes/test';
+import productRoutes from './routes/products';
+import saasRoutes from './routes/saas';
+import inventoryRoutes from './routes/inventory';
 
 // API routes
 app.use('/api/v1/auth', authRoutes);
 app.use('/api/v1/tenant', tenantRoutes);
 app.use('/api/v1/test', testRoutes);
+app.use('/api/v1/products', productRoutes);
+app.use('/api/v1/saas', saasRoutes);
+app.use('/api/v1/inventory', inventoryRoutes);
 
 // API info endpoint
 app.get('/api/v1', (req, res) => {
@@ -98,24 +109,18 @@ app.get('/api/v1', (req, res) => {
     status: 'active',
     endpoints: {
       auth: '/api/v1/auth',
+      tenant: '/api/v1/tenant',
+      products: '/api/v1/products',
+      inventory: '/api/v1/inventory',
+      saas: '/api/v1/saas',
+      test: '/api/v1/test',
       health: '/health'
     }
   });
 });
 
-// Socket.io connection handling
-io.on('connection', (socket) => {
-  logger.info(`Client connected: ${socket.id}`);
-  
-  socket.on('join-location', (locationId: string) => {
-    socket.join(`location-${locationId}`);
-    logger.info(`Client ${socket.id} joined location ${locationId}`);
-  });
-  
-  socket.on('disconnect', () => {
-    logger.info(`Client disconnected: ${socket.id}`);
-  });
-});
+// Initialize real-time service
+RealtimeService.initialize(io);
 
 // Error handling middleware (must be last)
 app.use(errorHandler);
@@ -136,11 +141,18 @@ app.use('*', (req, res) => {
 async function startServer() {
   try {
     // Initialize database connections
-    await connectDatabase();
+    await checkDatabaseConnection();
     await connectRedis();
     
     // Initialize Firebase
     await initializeFirebase();
+    
+    // Initialize Email Service
+    try {
+      await EmailService.initialize();
+    } catch (error) {
+      logger.warn('Email service initialization failed:', error);
+    }
     
     // Start server
     server.listen(PORT, () => {

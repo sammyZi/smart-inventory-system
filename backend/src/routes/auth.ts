@@ -1,7 +1,7 @@
 import express from 'express';
 import { AuthServiceV2 } from '../services/authServiceV2';
 import { authenticateJWT } from '../middleware/auth';
-import { validate } from '../utils/validation';
+import { validate } from '../middleware/validation';
 import { asyncHandler } from '../middleware/errorHandler';
 import { createResponse } from '../utils/helpers';
 import { logger } from '../utils/logger';

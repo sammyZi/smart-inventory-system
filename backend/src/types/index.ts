@@ -5,11 +5,14 @@ import { UserRole } from '@prisma/client';
 export interface AuthenticatedRequest extends Request {
   user?: {
     id: string;
-    firebaseUid: string;
+    firebaseUid?: string;
     email: string;
     role: UserRole;
     locationId?: string | undefined;
+    createdById?: string | null; // For tenant isolation
   };
+  tenantId?: string; // Admin ID for tenant isolation
+  isAdmin?: boolean; // Quick check if user is admin
 }
 
 // API Response types

@@ -2,7 +2,7 @@ import express from 'express';
 import { TenantService } from '../services/tenantService';
 import { authenticateJWT } from '../middleware/auth';
 import { tenantAuth } from '../middleware/tenantAuth';
-import { validate } from '../utils/validation';
+import { validate } from '../middleware/validation';
 import { asyncHandler } from '../middleware/errorHandler';
 import { createResponse } from '../utils/helpers';
 import { auditCustomAction } from '../middleware/auditLogger';

@@ -8,28 +8,40 @@ import { getFirestore, Firestore, FieldValue } from 'firebase-admin/firestore';
 import { logger } from '../utils/logger';
 
 // Initialize Firebase Admin if not already initialized
-if (!getApps().length) {
-    const projectId = process.env.FIREBASE_PROJECT_ID;
-    const clientEmail = process.env.FIREBASE_CLIENT_EMAIL;
-    const privateKey = process.env.FIREBASE_PRIVATE_KEY?.replace(/\\n/g, '\n');
+let firestoreInitialized = false;
 
-    if (!projectId || !clientEmail || !privateKey) {
-        throw new Error('Missing required Firebase environment variables');
+try {
+    if (!getApps().length) {
+        const projectId = process.env.FIREBASE_PROJECT_ID;
+        const clientEmail = process.env.FIREBASE_CLIENT_EMAIL;
+        const privateKey = process.env.FIREBASE_PRIVATE_KEY?.replace(/\\n/g, '\n');
+
+        if (projectId && clientEmail && privateKey) {
+            const serviceAccount = {
+                projectId,
+                clientEmail,
+                privateKey,
+            };
+
+            initializeApp({
+                credential: cert(serviceAccount),
+                projectId,
+            });
+            
+            firestoreInitialized = true;
+            logger.info('Firebase Admin initialized successfully');
+        } else {
+            logger.warn('Firebase credentials not provided - Firestore features disabled');
+        }
+    } else {
+        firestoreInitialized = true;
     }
-
-    const serviceAccount = {
-        projectId,
-        clientEmail,
-        privateKey,
-    };
-
-    initializeApp({
-        credential: cert(serviceAccount),
-        projectId,
-    });
+} catch (error) {
+    logger.error('Failed to initialize Firebase Admin:', error);
+    logger.warn('Firestore features will be disabled');
 }
 
-export const firestore: Firestore = getFirestore();
+export const firestore: Firestore | null = firestoreInitialized ? getFirestore() : null;
 
 // Collection names
 export const COLLECTIONS = {

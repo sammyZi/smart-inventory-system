@@ -1,6 +1,7 @@
 import { Request, Response, NextFunction } from 'express';
 import { UserRole } from '@prisma/client';
 import { TenantService } from '../services/tenantService';
+import { SaaSService } from '../services/saasService';
 import { logger } from '../utils/logger';
 import { AppError } from './errorHandler';
 import { AuthenticatedRequest } from '../types';
@@ -160,11 +161,51 @@ export const requireOwnLocation = (req: AuthenticatedRequest, res: Response, nex
   next();
 };
 
+// Middleware to enforce tenant isolation
+export const enforceTenantIsolation = async (
+  req: AuthenticatedRequest, 
+  res: Response, 
+  next: NextFunction
+) => {
+  if (!req.user) {
+    return next(new AppError('Authentication required', 401, 'NOT_AUTHENTICATED'));
+  }
+
+  try {
+    // Add tenant context to request
+    const adminId = SaaSService.getAdminIdFromUser(req.user);
+    req.tenantId = adminId;
+    req.isAdmin = req.user.role === UserRole.ADMIN;
+
+    // If accessing another user's data, verify tenant access
+    const targetUserId = req.params.userId || req.params.staffId || req.body.userId;
+    if (targetUserId && targetUserId !== req.user.id) {
+      const hasAccess = await SaaSService.verifyTenantAccess(req.user.id, targetUserId);
+      if (!hasAccess) {
+        logger.warn('Cross-tenant access attempt blocked', {
+          requestingUserId: req.user.id,
+          targetUserId,
+          endpoint: req.path,
+          ip: req.ip
+        });
+        return next(new AppError('Access denied - tenant isolation', 403, 'TENANT_ISOLATION_VIOLATION'));
+      }
+    }
+
+    next();
+
+  } catch (error) {
+    logger.error('Tenant isolation check failed:', error);
+    return next(new AppError('Tenant verification failed', 500, 'TENANT_CHECK_ERROR'));
+  }
+};
+
 // Combined middleware for common tenant operations
 export const tenantAuth = {
   admin: requireAdmin,
   location: requireLocationAccess,
   tenant: requireTenantAccess,
   ownLocation: requireOwnLocation,
-  filter: addTenantFilter
+  filter: addTenantFilter,
+  isolate: enforceTenantIsolation
 };
