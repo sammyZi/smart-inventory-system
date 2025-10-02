@@ -1,248 +1,265 @@
-# Smart Inventory & Billing Management System
+# Smart Inventory Management System
 
-A comprehensive inventory management system with real-time synchronization, AI-powered forecasting, and multi-location support.
+A comprehensive, enterprise-grade inventory management system with multi-tenant SaaS architecture, real-time synchronization, and advanced analytics.
 
 ## 🚀 Features
 
-- **Multi-location inventory synchronization** with real-time updates
-- **Role-based access control** (Admin, Manager, Staff, Customer)
-- **Point of Sale (POS)** system with multiple payment methods
-- **AI-powered demand forecasting** using TensorFlow.js
-- **Real-time analytics** and reporting dashboards
-- **Secure authentication** with Firebase Auth
-- **Audit logging** for all transactions
-- **Mobile-responsive** design
+### Core Functionality
+- **Multi-Tenant SaaS Architecture**: Complete tenant isolation with independent data scopes
+- **Inventory Management**: Real-time stock tracking, transfers, and alerts
+- **Point of Sale (POS)**: Quick sales, invoicing, and payment processing
+- **Product Catalog**: Comprehensive product management with categories and variants
+- **Analytics & Reporting**: Sales analytics, inventory insights, and business intelligence
+- **User Management**: Role-based access control (Admin, Manager, Staff)
+- **Real-time Sync**: Live updates across all connected clients
+- **Audit Logging**: Complete audit trail for all operations
 
-## 🛠 Tech Stack
-
-### Frontend
-- **Next.js 15** with App Router
-- **TypeScript** for type safety
-- **Tailwind CSS** for styling
-- **ShadCN UI** components
-- **Socket.io** for real-time updates
-
-### Backend
-- **Node.js** with Express.js
-- **TypeScript**
-- **Prisma ORM** with PostgreSQL
-- **Firebase Firestore** for real-time data
-- **Redis** for caching
-- **Socket.io** for real-time communication
-
-### Database
-- **PostgreSQL** for transactional data
-- **Firebase Firestore** for real-time inventory
-- **Redis** for caching and sessions
+### Technical Highlights
+- **TypeScript**: Full type safety across the codebase
+- **Prisma ORM**: Type-safe database access with PostgreSQL
+- **JWT Authentication**: Secure token-based authentication
+- **Rate Limiting**: API protection against abuse
+- **Input Validation**: Comprehensive request validation with Joi
+- **Error Handling**: Centralized error handling and logging
+- **RESTful API**: Clean, well-documented API endpoints
 
 ## 📋 Prerequisites
 
-- Node.js 18+ and npm/pnpm
-- PostgreSQL database
-- Redis server
-- Firebase project with Firestore enabled
+- Node.js (v16 or higher)
+- PostgreSQL (v13 or higher)
+- npm or yarn
 
-## 🔧 Installation
+## 🛠️ Installation
 
 ### 1. Clone the repository
 ```bash
-git clone <repository-url>
+git clone <your-repo-url>
 cd smart-inventory-system
 ```
 
 ### 2. Install dependencies
 ```bash
-# Install all dependencies (frontend + backend)
-npm run install:all
-
-# Or install separately
-npm run install:frontend
-npm run install:backend
+cd backend
+npm install
 ```
 
-### 4. Environment Setup
+### 3. Set up environment variables
+Create a `.env` file in the `backend` directory:
 
-#### Frontend (frontend/.env.local)
-```bash
-# Copy and configure
-cp frontend/.env.example frontend/.env.local
+```env
+# Database
+DATABASE_URL="postgresql://username:password@localhost:5432/inventory_db"
+
+# JWT
+JWT_SECRET="your-super-secret-jwt-key-change-this-in-production"
+JWT_REFRESH_SECRET="your-super-secret-refresh-key-change-this-in-production"
+
+# Server
+PORT=3001
+NODE_ENV=development
+
+# Optional: Firebase (for real-time features)
+FIREBASE_PROJECT_ID="your-project-id"
+FIREBASE_CLIENT_EMAIL="your-client-email"
+FIREBASE_PRIVATE_KEY="your-private-key"
 ```
 
-#### Backend (backend/.env)
-```bash
-# Copy and configure
-cp backend/.env.example backend/.env
-```
-
-**Required Environment Variables:**
-- `DATABASE_URL` - PostgreSQL connection string
-- `REDIS_URL` - Redis connection string
-- `FIREBASE_PROJECT_ID` - Firebase project ID
-- `FIREBASE_PRIVATE_KEY` - Firebase service account private key
-- `FIREBASE_CLIENT_EMAIL` - Firebase service account email
-- `JWT_SECRET` - Secret key for JWT tokens (32+ characters)
-
-### 5. Database Setup
+### 4. Set up the database
 ```bash
 # Generate Prisma client
-npm run db:generate
+npx prisma generate
 
-# Push schema to database
-npm run db:push
+# Run migrations
+npx prisma migrate deploy
 
-# Optional: Run migrations
-npm run db:migrate
-
-# Optional: Seed database
-npm run db:seed
+# (Optional) Seed with sample data
+npm run seed
 ```
 
-## 🚀 Running the Application
-
-### Development Mode
+### 5. Start the server
 ```bash
-# Run both frontend and backend
+# Development mode
 npm run dev
 
-# Or run separately
-npm run dev:frontend   # Frontend only (http://localhost:3000)
-npm run dev:backend    # Backend only (http://localhost:3001)
-```
-
-### Production Mode
-```bash
-# Build applications
+# Production mode
 npm run build
-
-# Start applications
 npm start
 ```
 
-## 📁 Project Structure
+The server will start on `http://localhost:3001`
 
+## 🧪 Testing
+
+### Run API Tests
+```bash
+# Quick API test (tests all core endpoints)
+node src/scripts/quickAPITest.js
+
+# Comprehensive feature verification
+npm run test:features
 ```
-├── frontend/              # Next.js frontend application
-│   ├── app/              # Next.js app directory
-│   │   ├── admin/        # Admin dashboard pages
-│   │   ├── manager/      # Manager dashboard pages
-│   │   ├── pos/          # Point of Sale pages
-│   │   └── login/        # Authentication pages
-│   ├── components/       # Reusable UI components
-│   ├── lib/              # Utility libraries
-│   └── package.json      # Frontend dependencies
-├── backend/              # Node.js backend API server
-│   ├── src/
-│   │   ├── config/       # Database and service configs
-│   │   ├── middleware/   # Express middleware
-│   │   ├── routes/       # API routes
-│   │   ├── services/     # Business logic
-│   │   ├── types/        # TypeScript types
-│   │   └── utils/        # Helper utilities
-│   ├── prisma/           # Database schema and migrations
-│   └── package.json      # Backend dependencies
-├── .kiro/                # Kiro IDE specifications
-└── package.json          # Root workspace configuration
+
+### Test Individual Features
+```bash
+# Test SaaS multi-tenancy
+npm run test:saas
+
+# Test inventory management
+npm run test:inventory
+
+# Test billing system
+npm run test:billing
+
+# Test real-time sync
+npm run test:realtime
+```
+
+## 📚 API Documentation
+
+### Base URL
+```
+http://localhost:3001/api/v1
+```
+
+### Key Endpoints
+
+#### Authentication & Tenant Management
+- `POST /saas/admin/signup` - Register new admin tenant
+- `POST /auth/login` - User login
+- `POST /auth/refresh` - Refresh access token
+
+#### Location Management
+- `POST /saas/locations` - Create new location
+- `GET /saas/locations` - Get all locations
+- `GET /saas/tenant/info` - Get tenant information
+
+#### Staff Management
+- `POST /saas/staff` - Create staff user
+- `GET /saas/staff` - Get all staff
+- `PUT /saas/staff/:staffId` - Update staff
+- `DELETE /saas/staff/:staffId` - Deactivate staff
+
+#### Product Management
+- `POST /products` - Create product
+- `GET /products` - List products
+- `GET /products/:id` - Get product details
+- `PUT /products/:id` - Update product
+- `DELETE /products/:id` - Delete product
+
+#### Inventory Management
+- `GET /inventory/stock` - Get stock levels
+- `PUT /inventory/stock/update` - Update stock level
+- `GET /inventory/movements` - Get stock movement history
+- `POST /inventory/transfer` - Create stock transfer
+- `GET /inventory/alerts` - Get inventory alerts
+
+#### Billing & Sales
+- `POST /billing/quick-sale` - Create quick sale
+- `POST /billing/invoice` - Create invoice
+- `GET /billing/transactions` - Get transactions
+- `GET /billing/analytics` - Get sales analytics
+
+For complete API documentation, see [API_ENDPOINTS_FOR_APP.md](backend/API_ENDPOINTS_FOR_APP.md)
+
+## 🏗️ Architecture
+
+### Tech Stack
+- **Backend**: Node.js + Express + TypeScript
+- **Database**: PostgreSQL + Prisma ORM
+- **Authentication**: JWT (Access + Refresh tokens)
+- **Validation**: Joi
+- **Logging**: Winston
+- **Real-time**: Firebase (optional)
+
+### Project Structure
+```
+backend/
+├── src/
+│   ├── config/          # Configuration files
+│   ├── middleware/      # Express middleware
+│   ├── routes/          # API routes
+│   ├── services/        # Business logic
+│   ├── utils/           # Utility functions
+│   ├── types/           # TypeScript types
+│   └── index.ts         # Application entry point
+├── prisma/
+│   └── schema.prisma    # Database schema
+└── scripts/             # Utility scripts
 ```
 
 ## 🔐 Security Features
 
-- **JWT Authentication** with refresh tokens
-- **Role-based access control** (RBAC)
-- **Input validation** with Joi schemas
-- **Rate limiting** to prevent abuse
-- **Helmet.js** for security headers
-- **Data encryption** for sensitive information
-- **Audit logging** for all user actions
+- **JWT Authentication**: Secure token-based auth with refresh tokens
+- **Password Hashing**: bcrypt with salt rounds
+- **Rate Limiting**: Protection against brute force attacks
+- **Input Validation**: Comprehensive request validation
+- **SQL Injection Protection**: Prisma ORM parameterized queries
+- **Tenant Isolation**: Complete data separation between tenants
+- **Audit Logging**: Full audit trail of all operations
+- **CORS**: Configurable cross-origin resource sharing
 
-## 📊 API Endpoints
+## 📊 Database Schema
 
-### Authentication
-- `POST /api/v1/auth/login` - User login
-- `POST /api/v1/auth/logout` - User logout
-- `POST /api/v1/auth/refresh` - Refresh JWT token
+The system uses PostgreSQL with the following main entities:
+- Users (Admin, Manager, Staff)
+- Locations (Stores/Warehouses)
+- Products
+- Stock Levels
+- Stock Movements
+- Stock Transfers
+- Transactions
+- Invoices
+- Audit Logs
 
-### Inventory
-- `GET /api/v1/inventory/products` - Get products
-- `POST /api/v1/inventory/products` - Create product
-- `PUT /api/v1/inventory/products/:id` - Update product
-- `POST /api/v1/inventory/stock/update` - Update stock levels
-
-### Transactions
-- `POST /api/v1/billing/transactions` - Create transaction
-- `GET /api/v1/billing/transactions` - Get transactions
-- `POST /api/v1/billing/refunds` - Process refund
-
-### Analytics
-- `GET /api/v1/analytics/dashboard` - Dashboard metrics
-- `GET /api/v1/analytics/reports` - Generate reports
-
-## 🔄 Real-time Features
-
-The system uses Socket.io for real-time updates:
-
-- **Inventory synchronization** across locations
-- **Live dashboard updates**
-- **Transaction notifications**
-- **Stock level alerts**
-
-## 🧪 Testing
-
-```bash
-# Run frontend tests
-npm test
-
-# Run backend tests
-cd server && npm test
-
-# Run with coverage
-npm run test:coverage
-```
-
-## 📈 Monitoring
-
-- **Winston logging** with file rotation
-- **Health check endpoints**
-- **Performance metrics**
-- **Error tracking** (optional Sentry integration)
+See [prisma/schema.prisma](backend/prisma/schema.prisma) for the complete schema.
 
 ## 🚀 Deployment
 
-### Free Tier Options
+### Production Checklist
+1. Set strong JWT secrets in environment variables
+2. Use production database credentials
+3. Enable HTTPS/SSL
+4. Configure CORS for your domain
+5. Set up database backups
+6. Configure logging and monitoring
+7. Set NODE_ENV=production
+8. Use a process manager (PM2, systemd)
 
-1. **Vercel + Railway + Firebase**
-   - Frontend: Vercel
-   - Backend: Railway
-   - Database: Firebase Firestore + PostgreSQL
+### Environment Variables for Production
+```env
+NODE_ENV=production
+DATABASE_URL="postgresql://user:pass@host:5432/db"
+JWT_SECRET="<strong-random-secret>"
+JWT_REFRESH_SECRET="<strong-random-secret>"
+PORT=3001
+CORS_ORIGIN="https://yourdomain.com"
+```
 
-2. **Netlify + Supabase**
-   - Frontend: Netlify
-   - Backend: Netlify Functions
-   - Database: Supabase
+## 📖 Additional Documentation
 
-3. **AWS Free Tier**
-   - Frontend: S3 + CloudFront
-   - Backend: Lambda + API Gateway
-   - Database: RDS (free tier)
+- [SaaS Multi-Tenant Guide](backend/SAAS_MULTI_TENANT_GUIDE.md)
+- [Inventory Management Guide](backend/INVENTORY_MANAGEMENT_GUIDE.md)
+- [Billing System Guide](backend/BILLING_SYSTEM_GUIDE.md)
+- [Real-time Sync Guide](backend/REALTIME_SYNC_GUIDE.md)
+- [API Endpoints for Apps](backend/API_ENDPOINTS_FOR_APP.md)
 
-## 🤝 Contributing
+## 📝 License
 
-1. Fork the repository
-2. Create a feature branch
-3. Make your changes
-4. Add tests if applicable
-5. Submit a pull request
+This project is licensed under the MIT License - see the LICENSE file for details.
 
-## 📄 License
+## ✅ Testing Status
 
-This project is licensed under the MIT License.
-
-## 🆘 Support
-
-For support and questions:
-- Check the documentation
-- Review the API specifications
-- Open an issue on GitHub
+All core features tested and working:
+- ✅ Admin registration and authentication
+- ✅ Location management
+- ✅ Staff management
+- ✅ Product catalog
+- ✅ Inventory tracking
+- ✅ Stock transfers
+- ✅ Point of sale
+- ✅ Sales analytics
+- ✅ Audit logging
 
 ---
 
-**Built with ❤️ for efficient inventory management**
+Built with TypeScript, Node.js, and PostgreSQL

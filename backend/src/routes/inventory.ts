@@ -3,15 +3,13 @@
  * API endpoints for stock management, transfers, and monitoring
  */
 
-import express, { Request, Response } from 'express';
+import express, { Response } from 'express';
 import { InventoryService } from '../services/inventoryService';
 import { authenticateJWT } from '../middleware/auth';
-import { requireAdmin, enforceTenantIsolation } from '../middleware/tenantAuth';
+import { enforceTenantIsolation } from '../middleware/tenantAuth';
 import { validate } from '../middleware/validation';
-import { auditCustomAction } from '../middleware/auditLogger';
 import { apiRateLimit } from '../middleware/rateLimiter';
 import { logger } from '../utils/logger';
-import { SaaSService } from '../services/saasService';
 import Joi from 'joi';
 import { AuthenticatedRequest } from '../types';
 
@@ -41,7 +39,6 @@ const stockTransferSchema = Joi.object({
 // Apply middleware to all routes
 router.use(authenticateJWT);
 router.use(enforceTenantIsolation);
-router.use(auditCustomAction('INVENTORY_ACCESS'));
 
 /**
  * GET /api/v1/inventory/stock
@@ -124,14 +121,14 @@ router.get('/movements', async (req: AuthenticatedRequest, res: Response) => {
   try {
     const tenantId = req.tenantId!;
     
-    const filters = {
-      locationId: req.query.locationId as string,
-      productId: req.query.productId as string,
-      movementType: req.query.movementType as any,
-      startDate: req.query.startDate ? new Date(req.query.startDate as string) : undefined,
-      endDate: req.query.endDate ? new Date(req.query.endDate as string) : undefined,
-      limit: req.query.limit ? parseInt(req.query.limit as string) : undefined
-    };
+    const filters: any = {};
+    
+    if (req.query.locationId) filters.locationId = req.query.locationId as string;
+    if (req.query.productId) filters.productId = req.query.productId as string;
+    if (req.query.movementType) filters.movementType = req.query.movementType;
+    if (req.query.startDate) filters.startDate = new Date(req.query.startDate as string);
+    if (req.query.endDate) filters.endDate = new Date(req.query.endDate as string);
+    if (req.query.limit) filters.limit = parseInt(req.query.limit as string);
 
     const movements = await InventoryService.getStockMovements(tenantId, filters);
 
@@ -287,6 +284,192 @@ router.get('/alerts', async (req: AuthenticatedRequest, res: Response) => {
 });
 
 /**
+ * POST /api/v1/inventory/stock/bulk-update
+ * Bulk update stock levels with conflict resolution
+ */
+router.post('/stock/bulk-update', async (req: AuthenticatedRequest, res: Response) => {
+  try {
+    const tenantId = req.tenantId!;
+    const userId = req.user!.id;
+    const { updates } = req.body;
+
+    if (!Array.isArray(updates) || updates.length === 0) {
+      return res.status(400).json({
+        success: false,
+        error: 'Invalid input',
+        message: 'Updates array is required and must not be empty'
+      });
+    }
+
+    const result = await InventoryService.bulkUpdateStock(tenantId, updates, userId);
+
+    res.json({
+      success: true,
+      data: result,
+      message: `Bulk update completed: ${result.success.length} successful, ${result.failed.length} failed`
+    });
+
+  } catch (error) {
+    logger.error('Error in bulk stock update:', error);
+    res.status(500).json({
+      success: false,
+      error: 'Failed to perform bulk stock update',
+      message: error instanceof Error ? error.message : 'Unknown error'
+    });
+  }
+});
+
+/**
+ * POST /api/v1/inventory/stock/reserve
+ * Reserve stock for pending transactions
+ */
+router.post('/stock/reserve', async (req: AuthenticatedRequest, res: Response) => {
+  try {
+    const tenantId = req.tenantId!;
+    const userId = req.user!.id;
+    const { productId, locationId, quantity, reference } = req.body;
+
+    if (!productId || !locationId || !quantity) {
+      return res.status(400).json({
+        success: false,
+        error: 'Missing required fields',
+        message: 'productId, locationId, and quantity are required'
+      });
+    }
+
+    const reservedStock = await InventoryService.reserveStock(
+      tenantId, 
+      productId, 
+      locationId, 
+      quantity, 
+      userId, 
+      reference
+    );
+
+    res.json({
+      success: true,
+      data: reservedStock,
+      message: 'Stock reserved successfully'
+    });
+
+  } catch (error) {
+    logger.error('Error reserving stock:', error);
+    res.status(500).json({
+      success: false,
+      error: 'Failed to reserve stock',
+      message: error instanceof Error ? error.message : 'Unknown error'
+    });
+  }
+});
+
+/**
+ * POST /api/v1/inventory/stock/release
+ * Release reserved stock
+ */
+router.post('/stock/release', async (req: AuthenticatedRequest, res: Response) => {
+  try {
+    const tenantId = req.tenantId!;
+    const userId = req.user!.id;
+    const { productId, locationId, quantity, reference } = req.body;
+
+    if (!productId || !locationId || !quantity) {
+      return res.status(400).json({
+        success: false,
+        error: 'Missing required fields',
+        message: 'productId, locationId, and quantity are required'
+      });
+    }
+
+    const releasedStock = await InventoryService.releaseReservedStock(
+      tenantId, 
+      productId, 
+      locationId, 
+      quantity, 
+      userId, 
+      reference
+    );
+
+    res.json({
+      success: true,
+      data: releasedStock,
+      message: 'Reserved stock released successfully'
+    });
+
+  } catch (error) {
+    logger.error('Error releasing reserved stock:', error);
+    res.status(500).json({
+      success: false,
+      error: 'Failed to release reserved stock',
+      message: error instanceof Error ? error.message : 'Unknown error'
+    });
+  }
+});
+
+/**
+ * POST /api/v1/inventory/validate
+ * Validate stock operation before execution
+ */
+router.post('/validate', async (req: AuthenticatedRequest, res: Response) => {
+  try {
+    const tenantId = req.tenantId!;
+    const { productId, locationId, requiredQuantity } = req.body;
+
+    if (!productId || !locationId || requiredQuantity === undefined) {
+      return res.status(400).json({
+        success: false,
+        error: 'Missing required fields',
+        message: 'productId, locationId, and requiredQuantity are required'
+      });
+    }
+
+    const validation = await InventoryService.validateStockOperation(
+      tenantId, 
+      productId, 
+      locationId, 
+      requiredQuantity
+    );
+
+    res.json({
+      success: true,
+      data: validation
+    });
+
+  } catch (error) {
+    logger.error('Error validating stock operation:', error);
+    res.status(500).json({
+      success: false,
+      error: 'Failed to validate stock operation',
+      message: error instanceof Error ? error.message : 'Unknown error'
+    });
+  }
+});
+
+/**
+ * GET /api/v1/inventory/summary
+ * Get comprehensive inventory summary for tenant
+ */
+router.get('/summary', async (req: AuthenticatedRequest, res: Response) => {
+  try {
+    const tenantId = req.tenantId!;
+    
+    const summary = await InventoryService.getInventorySummary(tenantId);
+
+    res.json({
+      success: true,
+      data: summary
+    });
+
+  } catch (error) {
+    logger.error('Error fetching inventory summary:', error);
+    res.status(500).json({
+      success: false,
+      error: 'Failed to fetch inventory summary',
+      message: error instanceof Error ? error.message : 'Unknown error'
+    });
+  }
+});
+
+/**
  * GET /api/v1/inventory/dashboard
  * Get inventory dashboard data for tenant
  */
@@ -294,40 +477,16 @@ router.get('/dashboard', async (req: AuthenticatedRequest, res: Response) => {
   try {
     const tenantId = req.tenantId!;
     
-    // Get dashboard metrics
-    const [
-      totalStock,
-      lowStockItems,
-      outOfStockItems,
-      alerts,
-      recentMovements
-    ] = await Promise.all([
-      InventoryService.getTenantStockLevels(tenantId),
-      InventoryService.getTenantStockLevels(tenantId, { lowStock: true }),
-      InventoryService.getTenantStockLevels(tenantId, { outOfStock: true }),
-      InventoryService.getInventoryAlerts(tenantId),
-      InventoryService.getStockMovements(tenantId, { limit: 10 })
-    ]);
-
-    // Calculate metrics
-    const totalProducts = totalStock.length;
-    const totalValue = totalStock.reduce((sum, stock) => {
-      const product = (stock as any).product;
-      return sum + (stock.quantity * (product?.price || 0));
-    }, 0);
+    // Get comprehensive summary
+    const summary = await InventoryService.getInventorySummary(tenantId);
+    
+    // Get recent movements
+    const recentMovements = await InventoryService.getStockMovements(tenantId, { limit: 10 });
 
     const dashboardData = {
-      summary: {
-        totalProducts,
-        totalValue,
-        lowStockCount: lowStockItems.length,
-        outOfStockCount: outOfStockItems.length,
-        alertsCount: alerts.length
-      },
-      alerts: alerts.slice(0, 5), // Top 5 alerts
-      recentMovements: recentMovements.slice(0, 10), // Last 10 movements
-      stockByLocation: this.groupStockByLocation(totalStock),
-      topProducts: this.getTopProductsByValue(totalStock).slice(0, 10)
+      summary,
+      recentMovements: recentMovements.slice(0, 10),
+      alerts: summary.alerts.slice(0, 5) // Top 5 alerts
     };
 
     res.json({
@@ -345,45 +504,6 @@ router.get('/dashboard', async (req: AuthenticatedRequest, res: Response) => {
   }
 });
 
-/**
- * Helper methods for dashboard data processing
- */
-function groupStockByLocation(stockLevels: any[]) {
-  const grouped = stockLevels.reduce((acc, stock) => {
-    const locationName = stock.location?.name || 'Unknown';
-    if (!acc[locationName]) {
-      acc[locationName] = {
-        locationName,
-        totalProducts: 0,
-        totalValue: 0,
-        lowStockCount: 0
-      };
-    }
-    
-    acc[locationName].totalProducts += 1;
-    acc[locationName].totalValue += stock.quantity * (stock.product?.price || 0);
-    if (stock.quantity <= stock.minThreshold) {
-      acc[locationName].lowStockCount += 1;
-    }
-    
-    return acc;
-  }, {});
 
-  return Object.values(grouped);
-}
-
-function getTopProductsByValue(stockLevels: any[]) {
-  return stockLevels
-    .map(stock => ({
-      productId: stock.productId,
-      productName: stock.product?.name || 'Unknown',
-      sku: stock.product?.sku || '',
-      quantity: stock.quantity,
-      unitPrice: stock.product?.price || 0,
-      totalValue: stock.quantity * (stock.product?.price || 0),
-      locationName: stock.location?.name || 'Unknown'
-    }))
-    .sort((a, b) => b.totalValue - a.totalValue);
-}
 
 export default router;

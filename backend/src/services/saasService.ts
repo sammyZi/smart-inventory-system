@@ -143,7 +143,7 @@ export class SaaSService {
       const refreshToken = this.generateRefreshToken(result.admin);
 
       // Log tenant creation
-      await AuditService.logAction({
+      await AuditService.log({
         userId: result.admin.id,
         action: 'CREATE',
         resource: 'tenant',
@@ -202,7 +202,7 @@ export class SaaSService {
       });
 
       // Log location creation
-      await AuditService.logAction({
+      await AuditService.log({
         userId: adminId,
         action: 'CREATE',
         resource: 'location',
@@ -283,7 +283,7 @@ export class SaaSService {
       });
 
       // Log staff creation
-      await AuditService.logAction({
+      await AuditService.log({
         userId: adminId,
         action: 'CREATE',
         resource: 'staff_user',

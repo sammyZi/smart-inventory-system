@@ -109,7 +109,7 @@ export const auditCustomAction = (
               userId: req.user.id,
               locationId: req.user.locationId,
               action,
-              resource: resource.toUpperCase(),
+              resource: resource ? resource.toUpperCase() : 'UNKNOWN',
               resourceId,
               oldValues,
               newValues,

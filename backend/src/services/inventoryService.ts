@@ -3,13 +3,12 @@
  * Handles stock levels, movements, transfers, and monitoring within tenant boundaries
  */
 
-import { PrismaClient, StockLevel, StockMovement, StockTransfer, MovementType, TransferStatus } from '@prisma/client';
+import { StockLevel, StockMovement, StockTransfer, MovementType, TransferStatus } from '@prisma/client';
 import { logger } from '../utils/logger';
 import { AuditService } from './auditService';
 import { SaaSService } from './saasService';
 import { RealtimeService } from './realtimeService';
-
-const prisma = new PrismaClient();
+import { prisma, withTransaction } from '../config/database';
 
 export interface StockUpdateData {
   productId: string;
@@ -138,7 +137,7 @@ export class InventoryService {
         throw new Error('Location access denied');
       }
 
-      // Get current stock level
+      // Get current stock level or create if doesn't exist
       const currentStock = await prisma.stockLevel.findFirst({
         where: {
           productId: data.productId,
@@ -146,21 +145,30 @@ export class InventoryService {
         }
       });
 
-      if (!currentStock) {
-        throw new Error('Stock level not found');
-      }
-
-      const previousQuantity = currentStock.quantity;
+      const previousQuantity = currentStock?.quantity || 0;
       const newQuantity = data.quantity;
       const quantityChange = newQuantity - previousQuantity;
 
-      // Update stock level
+      // Update or create stock level
       const updatedStock = await prisma.$transaction(async (tx) => {
-        // Update stock level
-        const updated = await tx.stockLevel.update({
-          where: { id: currentStock.id },
-          data: {
+        // Upsert stock level
+        const updated = await tx.stockLevel.upsert({
+          where: {
+            productId_locationId: {
+              productId: data.productId,
+              locationId: data.locationId
+            }
+          },
+          update: {
             quantity: newQuantity,
+            lastUpdated: new Date()
+          },
+          create: {
+            productId: data.productId,
+            locationId: data.locationId,
+            quantity: newQuantity,
+            minThreshold: 10,
+            maxThreshold: 1000,
             lastUpdated: new Date()
           },
           include: {
@@ -179,7 +187,7 @@ export class InventoryService {
             previousQty: previousQuantity,
             newQty: newQuantity,
             reason: data.reason || 'Manual adjustment',
-            reference: data.reference,
+            reference: data.reference || null,
             performedBy: userId
           }
         });
@@ -201,7 +209,7 @@ export class InventoryService {
       });
 
       // Audit log
-      await AuditService.logAction({
+      await AuditService.log({
         userId,
         action: 'UPDATE',
         resource: 'stock_level',
@@ -261,7 +269,7 @@ export class InventoryService {
       // Create transfer
       const transfer = await prisma.$transaction(async (tx) => {
         // Generate transfer number
-        const transferNo = `TXF-${Date.now()}-${Math.random().toString(36).substr(2, 6).toUpperCase()}`;
+        const transferNo = `TXF-${Date.now()}-${Math.random().toString(36).substring(2, 8).toUpperCase()}`;
 
         // Create transfer record
         const newTransfer = await tx.stockTransfer.create({
@@ -271,7 +279,7 @@ export class InventoryService {
             toLocationId: data.toLocationId,
             status: TransferStatus.PENDING,
             requestedBy: userId,
-            notes: data.notes,
+            notes: data.notes || null,
             items: {
               create: data.items.map(item => ({
                 productId: item.productId,
@@ -301,7 +309,7 @@ export class InventoryService {
       });
 
       // Audit log
-      await AuditService.logAction({
+      await AuditService.log({
         userId,
         action: 'CREATE',
         resource: 'stock_transfer',
@@ -567,6 +575,368 @@ export class InventoryService {
   }
 
   /**
+   * Bulk stock update with conflict resolution
+   */
+  static async bulkUpdateStock(
+    tenantId: string,
+    updates: StockUpdateData[],
+    userId: string
+  ): Promise<{ success: StockLevel[]; failed: Array<{ item: StockUpdateData; error: string }> }> {
+    const success: StockLevel[] = [];
+    const failed: Array<{ item: StockUpdateData; error: string }> = [];
+
+    // Process updates in batches to avoid overwhelming the database
+    const batchSize = 10;
+    for (let i = 0; i < updates.length; i += batchSize) {
+      const batch = updates.slice(i, i + batchSize);
+      
+      await Promise.allSettled(
+        batch.map(async (update) => {
+          try {
+            const result = await this.updateStockLevel(tenantId, update, userId);
+            success.push(result);
+          } catch (error) {
+            failed.push({
+              item: update,
+              error: error instanceof Error ? error.message : 'Unknown error'
+            });
+          }
+        })
+      );
+    }
+
+    logger.info(`Bulk stock update completed for tenant ${tenantId}:`, {
+      totalItems: updates.length,
+      successful: success.length,
+      failed: failed.length
+    });
+
+    return { success, failed };
+  }
+
+  /**
+   * Stock validation and conflict resolution
+   */
+  static async validateStockOperation(
+    tenantId: string,
+    productId: string,
+    locationId: string,
+    requiredQuantity: number
+  ): Promise<{
+    isValid: boolean;
+    currentStock: number;
+    availableStock: number;
+    conflicts: string[];
+  }> {
+    try {
+      // Verify location access
+      const hasAccess = await SaaSService.verifyLocationOwnership(tenantId, locationId);
+      if (!hasAccess) {
+        return {
+          isValid: false,
+          currentStock: 0,
+          availableStock: 0,
+          conflicts: ['Location access denied']
+        };
+      }
+
+      const stockLevel = await prisma.stockLevel.findFirst({
+        where: {
+          productId,
+          locationId
+        }
+      });
+
+      if (!stockLevel) {
+        return {
+          isValid: false,
+          currentStock: 0,
+          availableStock: 0,
+          conflicts: ['Stock level not found']
+        };
+      }
+
+      const availableStock = stockLevel.quantity - stockLevel.reservedQuantity;
+      const conflicts: string[] = [];
+
+      if (availableStock < requiredQuantity) {
+        conflicts.push(`Insufficient stock: required ${requiredQuantity}, available ${availableStock}`);
+      }
+
+      if (stockLevel.quantity <= stockLevel.minThreshold) {
+        conflicts.push('Stock is below minimum threshold');
+      }
+
+      return {
+        isValid: conflicts.length === 0,
+        currentStock: stockLevel.quantity,
+        availableStock,
+        conflicts
+      };
+
+    } catch (error) {
+      logger.error(`Error validating stock operation for tenant ${tenantId}:`, error);
+      return {
+        isValid: false,
+        currentStock: 0,
+        availableStock: 0,
+        conflicts: ['Validation error occurred']
+      };
+    }
+  }
+
+  /**
+   * Reserve stock for pending transactions
+   */
+  static async reserveStock(
+    tenantId: string,
+    productId: string,
+    locationId: string,
+    quantity: number,
+    userId: string,
+    reference?: string
+  ): Promise<StockLevel> {
+    try {
+      // Validate stock availability
+      const validation = await this.validateStockOperation(tenantId, productId, locationId, quantity);
+      if (!validation.isValid) {
+        throw new Error(`Cannot reserve stock: ${validation.conflicts.join(', ')}`);
+      }
+
+      const updatedStock = await withTransaction(async (tx) => {
+        const stockLevel = await tx.stockLevel.findFirst({
+          where: { productId, locationId }
+        });
+
+        if (!stockLevel) {
+          throw new Error('Stock level not found');
+        }
+
+        // Update reserved quantity
+        const updated = await tx.stockLevel.update({
+          where: { id: stockLevel.id },
+          data: {
+            reservedQuantity: stockLevel.reservedQuantity + quantity,
+            lastUpdated: new Date()
+          },
+          include: {
+            product: true,
+            location: true
+          }
+        });
+
+        // Create movement record
+        await tx.stockMovement.create({
+          data: {
+            productId,
+            locationId,
+            movementType: MovementType.ADJUSTMENT,
+            quantity: 0, // No actual quantity change, just reservation
+            previousQty: stockLevel.quantity,
+            newQty: stockLevel.quantity,
+            reason: `Reserved ${quantity} units`,
+            reference: reference || null,
+            performedBy: userId,
+            notes: `Reserved quantity: ${quantity}`
+          }
+        });
+
+        return updated;
+      });
+
+      // Real-time notification
+      RealtimeService.broadcastToTenant(tenantId, 'inventory-reservation', {
+        type: 'stock_reserved',
+        productId,
+        locationId,
+        quantity,
+        reservedBy: userId,
+        reference
+      });
+
+      logger.info(`Stock reserved for tenant ${tenantId}:`, {
+        productId,
+        locationId,
+        quantity,
+        reference
+      });
+
+      return updatedStock;
+
+    } catch (error) {
+      logger.error(`Error reserving stock for tenant ${tenantId}:`, error);
+      throw error;
+    }
+  }
+
+  /**
+   * Release reserved stock
+   */
+  static async releaseReservedStock(
+    tenantId: string,
+    productId: string,
+    locationId: string,
+    quantity: number,
+    userId: string,
+    reference?: string
+  ): Promise<StockLevel> {
+    try {
+      const updatedStock = await withTransaction(async (tx) => {
+        const stockLevel = await tx.stockLevel.findFirst({
+          where: { productId, locationId }
+        });
+
+        if (!stockLevel) {
+          throw new Error('Stock level not found');
+        }
+
+        if (stockLevel.reservedQuantity < quantity) {
+          throw new Error('Cannot release more than reserved quantity');
+        }
+
+        // Update reserved quantity
+        const updated = await tx.stockLevel.update({
+          where: { id: stockLevel.id },
+          data: {
+            reservedQuantity: stockLevel.reservedQuantity - quantity,
+            lastUpdated: new Date()
+          },
+          include: {
+            product: true,
+            location: true
+          }
+        });
+
+        // Create movement record
+        await tx.stockMovement.create({
+          data: {
+            productId,
+            locationId,
+            movementType: MovementType.ADJUSTMENT,
+            quantity: 0, // No actual quantity change, just reservation release
+            previousQty: stockLevel.quantity,
+            newQty: stockLevel.quantity,
+            reason: `Released ${quantity} reserved units`,
+            reference: reference || null,
+            performedBy: userId,
+            notes: `Released reserved quantity: ${quantity}`
+          }
+        });
+
+        return updated;
+      });
+
+      // Real-time notification
+      RealtimeService.broadcastToTenant(tenantId, 'inventory-reservation', {
+        type: 'stock_released',
+        productId,
+        locationId,
+        quantity,
+        releasedBy: userId,
+        reference
+      });
+
+      logger.info(`Reserved stock released for tenant ${tenantId}:`, {
+        productId,
+        locationId,
+        quantity,
+        reference
+      });
+
+      return updatedStock;
+
+    } catch (error) {
+      logger.error(`Error releasing reserved stock for tenant ${tenantId}:`, error);
+      throw error;
+    }
+  }
+
+  /**
+   * Get comprehensive inventory summary for tenant
+   */
+  static async getInventorySummary(tenantId: string): Promise<{
+    totalProducts: number;
+    totalLocations: number;
+    totalStockValue: number;
+    lowStockItems: number;
+    outOfStockItems: number;
+    pendingTransfers: number;
+    recentMovements: number;
+    alerts: InventoryAlert[];
+  }> {
+    try {
+      const locations = await SaaSService.getAdminLocations(tenantId);
+      const locationIds = locations.map(l => l.id);
+
+      if (locationIds.length === 0) {
+        return {
+          totalProducts: 0,
+          totalLocations: 0,
+          totalStockValue: 0,
+          lowStockItems: 0,
+          outOfStockItems: 0,
+          pendingTransfers: 0,
+          recentMovements: 0,
+          alerts: []
+        };
+      }
+
+      const [
+        stockLevels,
+        pendingTransfers,
+        recentMovements,
+        alerts
+      ] = await Promise.all([
+        prisma.stockLevel.findMany({
+          where: { locationId: { in: locationIds } },
+          include: { product: true }
+        }),
+        prisma.stockTransfer.count({
+          where: {
+            OR: [
+              { fromLocationId: { in: locationIds } },
+              { toLocationId: { in: locationIds } }
+            ],
+            status: { in: [TransferStatus.PENDING, TransferStatus.APPROVED] }
+          }
+        }),
+        prisma.stockMovement.count({
+          where: {
+            locationId: { in: locationIds },
+            timestamp: {
+              gte: new Date(Date.now() - 24 * 60 * 60 * 1000) // Last 24 hours
+            }
+          }
+        }),
+        this.getInventoryAlerts(tenantId)
+      ]);
+
+      // Calculate metrics
+      const uniqueProducts = new Set(stockLevels.map(s => s.productId)).size;
+      const totalStockValue = stockLevels.reduce((sum, stock) => {
+        return sum + (stock.quantity * ((stock as any).product?.price || 0));
+      }, 0);
+      const lowStockItems = stockLevels.filter(s => s.quantity <= s.minThreshold && s.quantity > 0).length;
+      const outOfStockItems = stockLevels.filter(s => s.quantity === 0).length;
+
+      return {
+        totalProducts: uniqueProducts,
+        totalLocations: locations.length,
+        totalStockValue,
+        lowStockItems,
+        outOfStockItems,
+        pendingTransfers,
+        recentMovements,
+        alerts
+      };
+
+    } catch (error) {
+      logger.error(`Error getting inventory summary for tenant ${tenantId}:`, error);
+      throw error;
+    }
+  }
+
+  /**
    * Private helper methods
    */
   private static async updateStockInTransaction(
@@ -622,7 +992,7 @@ export class InventoryService {
         quantity: data.quantityChange,
         previousQty: currentStock?.quantity || 0,
         newQty: Math.max(0, (currentStock?.quantity || 0) + data.quantityChange),
-        reference: data.reference,
+        reference: data.reference || null,
         performedBy: data.performedBy
       }
     });

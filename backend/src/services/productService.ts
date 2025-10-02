@@ -64,7 +64,7 @@ export class ProductService {
       // }
 
       // Log audit trail
-      await AuditService.logAction({
+      await AuditService.log({
         userId,
         action: 'CREATE',
         resource: 'product',
@@ -180,7 +180,7 @@ export class ProductService {
       // }
 
       // Log audit trail
-      await AuditService.logAction({
+      await AuditService.log({
         userId,
         action: 'UPDATE',
         resource: 'product',
@@ -227,7 +227,7 @@ export class ProductService {
       });
 
       // Log audit trail
-      await AuditService.logAction({
+      await AuditService.log({
         userId,
         action: 'DELETE',
         resource: 'product',
@@ -491,7 +491,7 @@ export class ProductService {
       });
 
       // Log audit trail
-      await AuditService.logAction({
+      await AuditService.log({
         userId,
         action: 'UPDATE',
         resource: 'product_images',
