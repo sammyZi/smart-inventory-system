@@ -1,382 +1,385 @@
-"use client"
+'use client'
 
-import { useState, useEffect, useRef } from "react"
 import { useAuth } from "@/components/auth-provider"
-import { DashboardLayout } from "@/components/layout/dashboard-layout"
-import { POSSidebar } from "@/components/pos/pos-sidebar"
+import { RoleGuard } from "@/components/role-based/RoleGuard"
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
+import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
-import { Label } from "@/components/ui/label"
-import { Card, CardContent, CardDescription, CardHeader, CardTitle, GlassCard } from "@/components/ui/card"
-import { Badge } from "@/components/ui/badge"
 import { Separator } from "@/components/ui/separator"
-import {
-  Table,
-  TableBody,
-  TableCell,
-  TableHead,
-  TableHeader,
-  TableRow,
-} from "@/components/ui/table"
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from "@/components/ui/select"
-import { Search, Plus, Minus, Trash2, ShoppingCart, Receipt, ScanBarcode, XCircle } from 'lucide-react'
-import { sampleProducts, type Product, type SaleItem } from "@/lib/sample-data"
-import { useToast } from "@/hooks/use-toast"
-import { useRouter } from "next/navigation"
+import { 
+  Calculator, 
+  Search, 
+  QrCode, 
+  ShoppingCart, 
+  CreditCard, 
+  Printer, 
+  Phone, 
+  Plus,
+  Minus,
+  Trash2,
+  DollarSign
+} from 'lucide-react'
+import { useState } from "react"
 
-interface CartItem extends SaleItem {
-  product: Product
+interface CartItem {
+  id: string
+  name: string
+  price: number
+  quantity: number
+  total: number
+}
+
+interface POSState {
+  cart: CartItem[]
+  subtotal: number
+  tax: number
+  discount: number
+  total: number
+  searchQuery: string
 }
 
 export default function POSPage() {
   const { user } = useAuth()
-  const { toast } = useToast()
-  const router = useRouter()
-  const [products] = useState<Product[]>(sampleProducts)
-  const [productSearchInput, setProductSearchInput] = useState("")
-  const [cart, setCart] = useState<CartItem[]>([])
-  const [customer, setCustomer] = useState({ name: "", email: "", phone: "" })
-  const [paymentMethod, setPaymentMethod] = useState<"cash" | "card" | "upi">("cash")
-  const [discount, setDiscount] = useState(0)
+  const [posState, setPosState] = useState<POSState>({
+    cart: [],
+    subtotal: 0,
+    tax: 0,
+    discount: 0,
+    total: 0,
+    searchQuery: ''
+  })
 
-  const searchInputRef = useRef<HTMLInputElement>(null)
+  const [currentSale, setCurrentSale] = useState({
+    transactionId: '',
+    customerInfo: '',
+    paymentMethod: 'cash'
+  })
 
-  useEffect(() => {
-    if (user && user.role !== "pos_staff") {
-      router.push("/login")
-    }
-  }, [user, router])
+  // Sample products for demonstration
+  const sampleProducts = [
+    { id: '1', name: 'Coffee - Large', price: 4.99, barcode: '123456789' },
+    { id: '2', name: 'Sandwich - Turkey', price: 8.99, barcode: '123456790' },
+    { id: '3', name: 'Water Bottle', price: 1.99, barcode: '123456791' },
+    { id: '4', name: 'Energy Drink', price: 3.49, barcode: '123456792' },
+    { id: '5', name: 'Chips - BBQ', price: 2.99, barcode: '123456793' },
+    { id: '6', name: 'Candy Bar', price: 1.49, barcode: '123456794' }
+  ]
 
-  if (!user || user.role !== "pos_staff") {
-    return <div>Loading...</div>
-  }
-
-  const findProduct = (query: string): Product | undefined => {
-    const lowerCaseQuery = query.toLowerCase()
-    return products.find(product =>
-      product.name.toLowerCase().includes(lowerCaseQuery) ||
-      product.sku.toLowerCase() === lowerCaseQuery ||
-      product.barcode === query
-    )
-  }
-
-  const handleAddProductToCart = () => {
-    if (!productSearchInput) return
-
-    const productToAdd = findProduct(productSearchInput)
-
-    if (!productToAdd) {
-      toast({
-        title: "Product Not Found",
-        description: `No product found for "${productSearchInput}".`,
-        variant: "destructive"
-      })
-      return
-    }
-
-    const existingItem = cart.find(item => item.productId === productToAdd.id)
+  const addToCart = (product: typeof sampleProducts[0]) => {
+    const existingItem = posState.cart.find(item => item.id === product.id)
     
     if (existingItem) {
-      if (existingItem.quantity < productToAdd.stock) {
-        setCart(cart.map(item =>
-          item.productId === productToAdd.id
-            ? { ...item, quantity: item.quantity + 1, total: (item.quantity + 1) * item.price }
-            : item
-        ))
-      } else {
-        toast({
-          title: "Insufficient Stock",
-          description: `Only ${productToAdd.stock} items of ${productToAdd.name} available.`,
-          variant: "destructive"
-        })
-      }
+      updateQuantity(product.id, existingItem.quantity + 1)
     } else {
-      if (productToAdd.stock > 0) {
-        const cartItem: CartItem = {
-          productId: productToAdd.id,
-          productName: productToAdd.name,
-          sku: productToAdd.sku,
-          quantity: 1,
-          price: productToAdd.price,
-          total: productToAdd.price,
-          product: productToAdd
-        }
-        setCart([...cart, cartItem])
-      } else {
-        toast({
-          title: "Out of Stock",
-          description: `${productToAdd.name} is currently out of stock.`,
-          variant: "destructive"
-        })
+      const newItem: CartItem = {
+        id: product.id,
+        name: product.name,
+        price: product.price,
+        quantity: 1,
+        total: product.price
       }
-    }
-    setProductSearchInput("")
-    searchInputRef.current?.focus()
-  }
-
-  const handleScanBarcode = () => {
-    const scannedValue = prompt("Simulate Barcode Scan: Enter barcode, SKU, or product name:")
-    if (scannedValue) {
-      setProductSearchInput(scannedValue)
-      setTimeout(() => {
-        handleAddProductToCart()
-      }, 100);
+      
+      const newCart = [...posState.cart, newItem]
+      updateCartTotals(newCart)
     }
   }
 
-  const updateQuantity = (productId: string, newQuantity: number) => {
-    const product = products.find(p => p.id === productId)
-    if (!product) return
-
+  const updateQuantity = (itemId: string, newQuantity: number) => {
     if (newQuantity <= 0) {
-      removeFromCart(productId)
+      removeFromCart(itemId)
       return
     }
 
-    if (newQuantity > product.stock) {
-      toast({
-        title: "Insufficient Stock",
-        description: `Only ${product.stock} items of ${product.name} available.`,
-        variant: "destructive"
-      })
-      return
-    }
-
-    setCart(cart.map(item =>
-      item.productId === productId
-        ? { ...item, quantity: newQuantity, total: newQuantity * item.price }
+    const newCart = posState.cart.map(item => 
+      item.id === itemId 
+        ? { ...item, quantity: newQuantity, total: item.price * newQuantity }
         : item
-    ))
+    )
+    updateCartTotals(newCart)
   }
 
-  const removeFromCart = (productId: string) => {
-    setCart(cart.filter(item => item.productId !== productId))
+  const removeFromCart = (itemId: string) => {
+    const newCart = posState.cart.filter(item => item.id !== itemId)
+    updateCartTotals(newCart)
   }
 
-  const subtotal = cart.reduce((sum, item) => sum + item.total, 0)
-  const taxRate = 0.18
-  const tax = subtotal * taxRate
-  const total = subtotal + tax - discount
+  const updateCartTotals = (cart: CartItem[]) => {
+    const subtotal = cart.reduce((sum, item) => sum + item.total, 0)
+    const tax = subtotal * 0.08 // 8% tax
+    const total = subtotal + tax - posState.discount
 
-  const handleCheckout = () => {
-    if (cart.length === 0) {
-      toast({
-        title: "Empty Cart",
-        description: "Please add items to cart before checkout.",
-        variant: "destructive"
-      })
-      return
-    }
-
-    const invoiceNumber = `INV-${Date.now()}`
-    
-    toast({
-      title: "Sale Completed",
-      description: `Invoice ${invoiceNumber} generated successfully.`,
+    setPosState({
+      ...posState,
+      cart,
+      subtotal,
+      tax,
+      total
     })
-
-    setCart([])
-    setCustomer({ name: "", email: "", phone: "" })
-    setDiscount(0)
-    setPaymentMethod("cash")
-    
-    router.push(`/pos/invoice/${invoiceNumber}`)
   }
+
+  const clearCart = () => {
+    setPosState({
+      cart: [],
+      subtotal: 0,
+      tax: 0,
+      discount: 0,
+      total: 0,
+      searchQuery: ''
+    })
+  }
+
+  const processPayment = () => {
+    // Simulate payment processing
+    const transactionId = 'TXN-' + Date.now()
+    setCurrentSale({ ...currentSale, transactionId })
+    
+    // In a real app, this would process the payment
+    alert(`Payment processed! Transaction ID: ${transactionId}`)
+    clearCart()
+  }
+
+  const callManager = () => {
+    alert('Manager assistance requested. Please wait for help.')
+  }
+
+  const filteredProducts = sampleProducts.filter(product =>
+    product.name.toLowerCase().includes(posState.searchQuery.toLowerCase()) ||
+    product.barcode.includes(posState.searchQuery)
+  )
 
   return (
-    <DashboardLayout sidebar={<POSSidebar />} title="Point of Sale">
-      <div className="grid grid-cols-1 lg:grid-cols-3 gap-6 h-full">
-        {/* Left Section: Product Search & Cart */}
-        <div className="lg:col-span-2 flex flex-col space-y-6">
-          
-          <Card>
-            <CardHeader>
-              <CardTitle>Add Products</CardTitle>
-              <CardDescription>Search by name, SKU, or barcode.</CardDescription>
-            </CardHeader>
-            <CardContent className="flex flex-col sm:flex-row gap-2">
-              <div className="relative flex-1">
-                <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 h-4 w-4 text-muted-foreground" />
-                <Input
-                  ref={searchInputRef}
-                  placeholder="Type or scan product..."
-                  value={productSearchInput}
-                  onChange={(e) => setProductSearchInput(e.target.value)}
-                  onKeyDown={(e) => e.key === 'Enter' && handleAddProductToCart()}
-                  className="pl-10"
-                />
-              </div>
-              <Button onClick={handleAddProductToCart}>
-                <Plus className="h-4 w-4 mr-2" />
-                Add
+    <RoleGuard allowedRoles={['ADMIN', 'MANAGER', 'STAFF']}>
+      <div className="min-h-screen bg-background">
+        <div className="container mx-auto p-4">
+          {/* Header */}
+          <div className="flex justify-between items-center mb-6">
+            <div className="flex items-center gap-3">
+              <h1 className="text-3xl font-bold">Point of Sale</h1>
+              <Badge variant="outline" className="flex items-center gap-1">
+                <Calculator className="h-3 w-3" />
+                {user?.role}
+              </Badge>
+            </div>
+            <div className="flex gap-2">
+              <Button variant="outline" onClick={callManager}>
+                <Phone className="h-4 w-4 mr-2" />
+                Call Manager
               </Button>
-              <Button variant="outline" onClick={handleScanBarcode}>
-                <ScanBarcode className="h-4 w-4 mr-2" />
+              <Button variant="outline">
+                <QrCode className="h-4 w-4 mr-2" />
                 Scan
               </Button>
-            </CardContent>
-          </Card>
+            </div>
+          </div>
 
-          <Card className="flex-1 flex flex-col">
-            <CardHeader>
-              <div className="flex items-center justify-between">
-                <div>
-                  <CardTitle>Current Sale</CardTitle>
-                  <CardDescription>
-                    {cart.length} {cart.length === 1 ? 'item' : 'items'}
-                  </CardDescription>
-                </div>
-                <Badge variant="secondary">Subtotal: ₹{subtotal.toLocaleString()}</Badge>
-              </div>
-            </CardHeader>
-            <CardContent className="flex-1 overflow-y-auto">
-              {cart.length === 0 ? (
-                <div className="text-center py-16 text-muted-foreground">
-                  <ShoppingCart className="h-12 w-12 mx-auto mb-4" />
-                  <h3 className="text-lg font-semibold">Cart is empty</h3>
-                  <p>Add products to get started</p>
-                </div>
-              ) : (
-                <Table>
-                  <TableHeader>
-                    <TableRow>
-                      <TableHead>Product</TableHead>
-                      <TableHead className="text-center">Quantity</TableHead>
-                      <TableHead className="text-right">Total</TableHead>
-                      <TableHead className="w-[50px]"></TableHead>
-                    </TableRow>
-                  </TableHeader>
-                  <TableBody>
-                    {cart.map(item => (
-                      <TableRow key={item.productId}>
-                        <TableCell>
-                          <div className="font-medium">{item.productName}</div>
-                          <div className="text-sm text-muted-foreground">₹{item.price.toLocaleString()} each</div>
-                        </TableCell>
-                        <TableCell>
-                          <div className="flex items-center justify-center space-x-2">
+          <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+            {/* Product Search and Selection */}
+            <div className="lg:col-span-2 space-y-4">
+              {/* Search Bar */}
+              <Card>
+                <CardHeader>
+                  <CardTitle className="flex items-center">
+                    <Search className="h-5 w-5 mr-2" />
+                    Product Search
+                  </CardTitle>
+                </CardHeader>
+                <CardContent>
+                  <Input
+                    placeholder="Search products by name or scan barcode..."
+                    value={posState.searchQuery}
+                    onChange={(e) => setPosState({ ...posState, searchQuery: e.target.value })}
+                    className="text-lg"
+                  />
+                </CardContent>
+              </Card>
+
+              {/* Product Grid */}
+              <Card>
+                <CardHeader>
+                  <CardTitle>Available Products</CardTitle>
+                  <CardDescription>Click to add items to cart</CardDescription>
+                </CardHeader>
+                <CardContent>
+                  <div className="grid grid-cols-2 md:grid-cols-3 gap-4">
+                    {filteredProducts.map((product) => (
+                      <Button
+                        key={product.id}
+                        variant="outline"
+                        className="h-20 flex-col p-4"
+                        onClick={() => addToCart(product)}
+                      >
+                        <span className="font-medium text-sm">{product.name}</span>
+                        <span className="text-lg font-bold">${product.price}</span>
+                      </Button>
+                    ))}
+                  </div>
+                </CardContent>
+              </Card>
+            </div>
+
+            {/* Shopping Cart and Checkout */}
+            <div className="space-y-4">
+              {/* Current Cart */}
+              <Card>
+                <CardHeader>
+                  <CardTitle className="flex items-center justify-between">
+                    <span className="flex items-center">
+                      <ShoppingCart className="h-5 w-5 mr-2" />
+                      Current Sale
+                    </span>
+                    {posState.cart.length > 0 && (
+                      <Button variant="ghost" size="sm" onClick={clearCart}>
+                        <Trash2 className="h-4 w-4" />
+                      </Button>
+                    )}
+                  </CardTitle>
+                </CardHeader>
+                <CardContent>
+                  {posState.cart.length === 0 ? (
+                    <div className="text-center text-muted-foreground py-8">
+                      <ShoppingCart className="h-8 w-8 mx-auto mb-2" />
+                      <p>No items in cart</p>
+                    </div>
+                  ) : (
+                    <div className="space-y-3">
+                      {posState.cart.map((item) => (
+                        <div key={item.id} className="flex items-center justify-between">
+                          <div className="flex-1">
+                            <p className="font-medium text-sm">{item.name}</p>
+                            <p className="text-xs text-muted-foreground">${item.price.toFixed(2)} each</p>
+                          </div>
+                          <div className="flex items-center gap-2">
                             <Button
                               variant="outline"
-                              size="icon"
-                              className="h-8 w-8"
-                              onClick={() => updateQuantity(item.productId, item.quantity - 1)}
+                              size="sm"
+                              onClick={() => updateQuantity(item.id, item.quantity - 1)}
                             >
-                              <Minus className="h-4 w-4" />
+                              <Minus className="h-3 w-3" />
                             </Button>
-                            <span className="w-8 text-center font-medium">{item.quantity}</span>
+                            <span className="w-8 text-center">{item.quantity}</span>
                             <Button
                               variant="outline"
-                              size="icon"
-                              className="h-8 w-8"
-                              onClick={() => updateQuantity(item.productId, item.quantity + 1)}
+                              size="sm"
+                              onClick={() => updateQuantity(item.id, item.quantity + 1)}
                             >
-                              <Plus className="h-4 w-4" />
+                              <Plus className="h-3 w-3" />
                             </Button>
                           </div>
-                        </TableCell>
-                        <TableCell className="text-right font-medium">₹{item.total.toLocaleString()}</TableCell>
-                        <TableCell>
-                          <Button
-                            variant="ghost"
-                            size="icon"
-                            className="h-8 w-8 text-muted-foreground hover:text-destructive"
-                            onClick={() => removeFromCart(item.productId)}
-                          >
-                            <Trash2 className="h-4 w-4" />
-                          </Button>
-                        </TableCell>
-                      </TableRow>
-                    ))}
-                  </TableBody>
-                </Table>
-                )}
-            </CardContent>
-          </Card>
-        </div>
+                          <div className="w-16 text-right font-medium">
+                            ${item.total.toFixed(2)}
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </CardContent>
+              </Card>
 
-        {/* Right Section: Customer Info & Payment */}
-        <div className="flex flex-col space-y-6">
-          <Card>
-            <CardHeader>
-              <CardTitle>Customer</CardTitle>
-            </CardHeader>
-            <CardContent className="space-y-4">
-              <div className="space-y-2">
-                <Label htmlFor="customerName">Name</Label>
-                <Input id="customerName" value={customer.name} onChange={(e) => setCustomer({ ...customer, name: e.target.value })} placeholder="Walk-in Customer" />
-              </div>
-              <div className="space-y-2">
-                <Label htmlFor="customerPhone">Phone</Label>
-                <Input id="customerPhone" value={customer.phone} onChange={(e) => setCustomer({ ...customer, phone: e.target.value })} placeholder="Optional" />
-              </div>
-            </CardContent>
-          </Card>
+              {/* Order Summary */}
+              {posState.cart.length > 0 && (
+                <Card>
+                  <CardHeader>
+                    <CardTitle>Order Summary</CardTitle>
+                  </CardHeader>
+                  <CardContent>
+                    <div className="space-y-2">
+                      <div className="flex justify-between">
+                        <span>Subtotal:</span>
+                        <span>${posState.subtotal.toFixed(2)}</span>
+                      </div>
+                      <div className="flex justify-between">
+                        <span>Tax (8%):</span>
+                        <span>${posState.tax.toFixed(2)}</span>
+                      </div>
+                      {posState.discount > 0 && (
+                        <div className="flex justify-between text-green-600">
+                          <span>Discount:</span>
+                          <span>-${posState.discount.toFixed(2)}</span>
+                        </div>
+                      )}
+                      <Separator />
+                      <div className="flex justify-between text-lg font-bold">
+                        <span>Total:</span>
+                        <span>${posState.total.toFixed(2)}</span>
+                      </div>
+                    </div>
+                  </CardContent>
+                </Card>
+              )}
 
-          <Card className="flex-1 flex flex-col">
-            <CardHeader>
-              <CardTitle>Payment</CardTitle>
-            </CardHeader>
-            <CardContent className="flex-1 flex flex-col justify-between space-y-4">
-              <div className="space-y-4">
-                <div className="space-y-2">
-                  <Label>Payment Method</Label>
-                  <Select value={paymentMethod} onValueChange={(value: "cash" | "card" | "upi") => setPaymentMethod(value)}>
-                    <SelectTrigger><SelectValue /></SelectTrigger>
-                    <SelectContent>
-                      <SelectItem value="cash">Cash</SelectItem>
-                      <SelectItem value="card">Card</SelectItem>
-                      <SelectItem value="upi">UPI</SelectItem>
-                    </SelectContent>
-                  </Select>
-                </div>
+              {/* Payment Options */}
+              {posState.cart.length > 0 && (
+                <Card>
+                  <CardHeader>
+                    <CardTitle>Payment</CardTitle>
+                  </CardHeader>
+                  <CardContent>
+                    <div className="space-y-4">
+                      <div className="grid grid-cols-2 gap-2">
+                        <Button
+                          variant={currentSale.paymentMethod === 'cash' ? 'default' : 'outline'}
+                          onClick={() => setCurrentSale({ ...currentSale, paymentMethod: 'cash' })}
+                        >
+                          <DollarSign className="h-4 w-4 mr-2" />
+                          Cash
+                        </Button>
+                        <Button
+                          variant={currentSale.paymentMethod === 'card' ? 'default' : 'outline'}
+                          onClick={() => setCurrentSale({ ...currentSale, paymentMethod: 'card' })}
+                        >
+                          <CreditCard className="h-4 w-4 mr-2" />
+                          Card
+                        </Button>
+                      </div>
+                      
+                      <Button 
+                        className="w-full" 
+                        size="lg"
+                        onClick={processPayment}
+                      >
+                        Process Payment (${posState.total.toFixed(2)})
+                      </Button>
+                      
+                      <Button 
+                        variant="outline" 
+                        className="w-full"
+                        onClick={() => alert('Receipt printed!')}
+                      >
+                        <Printer className="h-4 w-4 mr-2" />
+                        Print Receipt
+                      </Button>
+                    </div>
+                  </CardContent>
+                </Card>
+              )}
 
-                <div className="space-y-2">
-                  <Label htmlFor="discount">Discount (₹)</Label>
-                  <Input id="discount" type="number" value={discount} onChange={(e) => setDiscount(Number(e.target.value))} placeholder="0" />
-                </div>
-
-                <Separator />
-
-                <div className="space-y-2 text-sm">
-                  <div className="flex justify-between">
-                    <span className="text-muted-foreground">Subtotal</span>
-                    <span>₹{subtotal.toLocaleString()}</span>
+              {/* Staff Info */}
+              <Card>
+                <CardHeader>
+                  <CardTitle>Staff Info</CardTitle>
+                </CardHeader>
+                <CardContent>
+                  <div className="space-y-2">
+                    <div className="flex justify-between">
+                      <span>Cashier:</span>
+                      <span>{user?.firstName} {user?.lastName}</span>
+                    </div>
+                    <div className="flex justify-between">
+                      <span>Role:</span>
+                      <Badge variant="outline">{user?.role}</Badge>
+                    </div>
+                    <div className="flex justify-between">
+                      <span>Shift:</span>
+                      <span className="text-green-600">Active</span>
+                    </div>
                   </div>
-                  <div className="flex justify-between">
-                    <span className="text-muted-foreground">Tax ({taxRate * 100}%)</span>
-                    <span>₹{tax.toFixed(2)}</span>
-                  </div>
-                  <div className="flex justify-between">
-                    <span className="text-muted-foreground">Discount</span>
-                    <span className="text-destructive">-₹{discount.toLocaleString()}</span>
-                  </div>
-                  <Separator />
-                  <div className="flex justify-between font-semibold text-base">
-                    <span>Total</span>
-                    <span>₹{total.toFixed(2)}</span>
-                  </div>
-                </div>
-              </div>
-
-              <Button 
-                onClick={handleCheckout}
-                size="lg"
-                className="w-full"
-                disabled={cart.length === 0}
-              >
-                <Receipt className="h-4 w-4 mr-2" />
-                Complete Sale
-              </Button>
-            </CardContent>
-          </Card>
+                </CardContent>
+              </Card>
+            </div>
+          </div>
         </div>
       </div>
-    </DashboardLayout>
+    </RoleGuard>
   )
 }

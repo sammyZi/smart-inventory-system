@@ -1,275 +1,282 @@
-"use client"
+'use client'
 
 import { useAuth } from "@/components/auth-provider"
-import { DashboardLayout } from "@/components/layout/dashboard-layout"
-import { ManagerSidebar } from "@/components/manager/manager-sidebar"
+import { RoleGuard, ManagerAndAbove } from "@/components/role-based/RoleGuard"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Badge } from "@/components/ui/badge"
-import { Package, TrendingDown, TrendingUp, AlertTriangle, ShoppingCart, BarChart3 } from 'lucide-react'
-import { sampleProducts, sampleSales, sampleStockMovements } from "@/lib/sample-data"
+import { Button } from "@/components/ui/button"
+import { Progress } from "@/components/ui/progress"
+import { 
+  Users, 
+  Package, 
+  ShoppingCart, 
+  TrendingUp, 
+  AlertTriangle, 
+  DollarSign, 
+  Building2, 
+  Clock,
+  Target,
+  UserPlus,
+  ClipboardList,
+  FileText,
+  Star
+} from 'lucide-react'
 import { useRouter } from "next/navigation"
-import { useEffect } from "react"
+import { useEffect, useState } from "react"
+
+interface StoreMetrics {
+  todaysSales: number
+  salesTarget: number
+  transactionCount: number
+  averageOrderValue: number
+  staffOnDuty: number
+  totalStaff: number
+  lowStockItems: number
+  customerSatisfaction: number
+}
 
 export default function ManagerDashboard() {
-  const { user } = useAuth()
+  const { user, tenant } = useAuth()
   const router = useRouter()
+  const [metrics, setMetrics] = useState<StoreMetrics>({
+    todaysSales: 1234.50,
+    salesTarget: 2000,
+    transactionCount: 45,
+    averageOrderValue: 27.43,
+    staffOnDuty: 6,
+    totalStaff: 8,
+    lowStockItems: 12,
+    customerSatisfaction: 4.8
+  })
 
-  useEffect(() => {
-    if (user && user.role !== "store_manager") {
-      router.push("/login")
-    }
-  }, [user, router])
-
-  if (!user || user.role !== "store_manager") {
-    return <div>Loading...</div>
-  }
-
-  const totalProducts = sampleProducts.length
-  const lowStockProducts = sampleProducts.filter(p => p.stock <= p.minStock)
-  const outOfStockProducts = sampleProducts.filter(p => p.stock === 0)
-  const totalValue = sampleProducts.reduce((sum, p) => sum + (p.stock * p.cost), 0)
-  
-  const recentMovements = sampleStockMovements.slice(0, 5)
-  const todaySales = sampleSales.filter(sale => 
-    sale.createdAt.toDateString() === new Date().toDateString()
-  ).length
+  const salesProgress = (metrics.todaysSales / metrics.salesTarget) * 100
 
   return (
-    <DashboardLayout 
-      sidebar={<ManagerSidebar />} 
-      title="Store Manager Dashboard"
-    >
-      <div className="space-y-6">
-        {/* Welcome Header */}
-        <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
-          <div>
-            <h2 className="text-3xl font-bold text-gray-900">Welcome, {user.name}</h2>
-            <p className="text-gray-600 mt-1">Here's your store's performance at a glance</p>
+    <RoleGuard allowedRoles={['ADMIN', 'MANAGER']}>
+      <div className="min-h-screen bg-background">
+        <div className="container mx-auto p-6 space-y-6">
+          {/* Header */}
+          <div className="flex justify-between items-start">
+            <div>
+              <div className="flex items-center gap-3 mb-2">
+                <h1 className="text-3xl font-bold">Store Manager Dashboard</h1>
+                <Badge variant="outline" className="flex items-center gap-1">
+                  <Building2 className="h-3 w-3" />
+                  MANAGER
+                </Badge>
+              </div>
+              <p className="text-muted-foreground">
+                Welcome back, {user?.firstName}! Here's your store performance today.
+              </p>
+            </div>
+            <Button variant="outline" onClick={() => router.push('/manager/settings')}>
+              <Clock className="h-4 w-4 mr-2" />
+              Shift Status
+            </Button>
           </div>
-          <div className="flex items-center space-x-2">
-            <div className="w-2 h-2 bg-green-400 rounded-full animate-pulse"></div>
-            <span className="text-sm text-green-600 font-medium">Store is active</span>
-          </div>
-        </div>
 
-        {/* Enhanced Stats Cards */}
-        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
-          <Card className="shadow-sm bg-white/95 backdrop-blur-sm border border-gray-200/50">
-            <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-3">
-              <CardTitle className="text-sm font-semibold text-gray-600">Total Products</CardTitle>
-              <div className="w-10 h-10 rounded-lg bg-gradient-to-br from-blue-500 to-indigo-600 flex items-center justify-center">
-                <Package className="h-5 w-5 text-white" />
-              </div>
-            </CardHeader>
-            <CardContent>
-              <div className="text-3xl font-bold text-blue-600">
-                {totalProducts}
-              </div>
-              <p className="text-sm text-gray-600 font-medium mt-1">
-                Active inventory items
-              </p>
-            </CardContent>
-          </Card>
-
-          <Card className="shadow-sm bg-white/95 backdrop-blur-sm border border-gray-200/50">
-            <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-3">
-              <CardTitle className="text-sm font-semibold text-gray-600">Low Stock</CardTitle>
-              <div className="w-10 h-10 rounded-lg bg-gradient-to-br from-amber-500 to-orange-600 flex items-center justify-center">
-                <AlertTriangle className="h-5 w-5 text-white" />
-              </div>
-            </CardHeader>
-            <CardContent>
-              <div className={`text-3xl font-bold ${lowStockProducts.length > 5 ? 'text-red-600' : 'text-amber-600'}`}>
-                {lowStockProducts.length}
-              </div>
-              <p className="text-sm text-amber-600 font-medium mt-1">
-                Items need restocking
-              </p>
-            </CardContent>
-          </Card>
-
-          <Card className="shadow-sm bg-white/95 backdrop-blur-sm border border-gray-200/50">
-            <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-3">
-              <CardTitle className="text-sm font-semibold text-gray-600">Out of Stock</CardTitle>
-              <div className="w-10 h-10 rounded-lg bg-gradient-to-br from-red-500 to-rose-600 flex items-center justify-center">
-                <TrendingDown className="h-5 w-5 text-white" />
-              </div>
-            </CardHeader>
-            <CardContent>
-              <div className={`text-3xl font-bold ${outOfStockProducts.length > 0 ? 'text-red-600' : 'text-gray-600'}`}>
-                {outOfStockProducts.length}
-              </div>
-              <p className="text-sm text-red-600 font-medium mt-1">
-                Urgent restocking needed
-              </p>
-            </CardContent>
-          </Card>
-
-          <Card className="shadow-sm bg-white/95 backdrop-blur-sm border border-gray-200/50">
-            <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-3">
-              <CardTitle className="text-sm font-semibold text-gray-600">Inventory Value</CardTitle>
-              <div className="w-10 h-10 rounded-lg bg-gradient-to-br from-green-500 to-emerald-600 flex items-center justify-center">
-                <BarChart3 className="h-5 w-5 text-white" />
-              </div>
-            </CardHeader>
-            <CardContent>
-              <div className="text-3xl font-bold text-green-600">
-                ₹{totalValue.toLocaleString()}
-              </div>
-              <p className="text-sm text-green-600 font-medium mt-1">
-                Total stock value
-              </p>
-            </CardContent>
-          </Card>
-        </div>
-
-        <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-          {/* Enhanced Stock Alerts */}
-          <Card className="shadow-sm bg-white/95 backdrop-blur-sm border border-gray-200/50">
+          {/* Sales Target Progress */}
+          <Card>
             <CardHeader>
-              <div className="flex items-center space-x-3">
-                <div className="w-10 h-10 rounded-lg bg-gradient-to-br from-amber-500 to-orange-600 flex items-center justify-center">
-                  <AlertTriangle className="h-5 w-5 text-white" />
-                </div>
-                <div>
-                  <CardTitle className="text-xl text-gray-900">Stock Alerts</CardTitle>
-                  <CardDescription className="text-gray-600">Products requiring immediate attention</CardDescription>
-                </div>
-              </div>
+              <CardTitle className="flex items-center">
+                <Target className="h-5 w-5 mr-2" />
+                Today's Sales Target
+              </CardTitle>
+              <CardDescription>Track your progress towards daily goals</CardDescription>
             </CardHeader>
             <CardContent>
               <div className="space-y-4">
-                {lowStockProducts.concat(outOfStockProducts).slice(0, 5).map((product, index) => (
-                  <div key={product.id} className="flex items-center justify-between p-4 rounded-lg bg-white/80 border border-gray-200/50 hover:bg-white/90 transition-all duration-300">
-                    <div className="flex items-center space-x-4">
-                      <div className={`w-10 h-10 rounded-lg bg-gradient-to-br ${product.stock === 0 ? 'from-red-500 to-rose-600' : 'from-amber-500 to-orange-600'} flex items-center justify-center text-white font-semibold text-sm`}>
-                        !
-                      </div>
-                      <div>
-                        <p className="font-semibold text-gray-800">{product.name}</p>
-                        <p className="text-sm text-gray-600">SKU: {product.sku}</p>
-                      </div>
-                    </div>
-                    <div className="text-right">
-                      <Badge variant={product.stock === 0 ? "destructive" : "secondary"} className="font-semibold">
-                        {product.stock} left
-                      </Badge>
-                      <p className="text-xs text-gray-500 mt-1">
-                        Min required: {product.minStock}
-                      </p>
-                    </div>
-                  </div>
-                ))}
-                {lowStockProducts.length === 0 && outOfStockProducts.length === 0 && (
-                  <div className="text-center py-8">
-                    <div className="w-16 h-16 rounded-full bg-green-100 flex items-center justify-center mx-auto mb-4">
-                      <Package className="h-8 w-8 text-green-600" />
-                    </div>
-                    <p className="text-gray-600 font-medium">
-                      🎉 All products are well stocked!
-                    </p>
-                    <p className="text-sm text-gray-500 mt-1">
-                      No items require immediate restocking
-                    </p>
-                  </div>
-                )}
+                <div className="flex justify-between items-center">
+                  <span className="text-2xl font-bold">${metrics.todaysSales.toFixed(2)}</span>
+                  <span className="text-muted-foreground">/ ${metrics.salesTarget.toFixed(2)}</span>
+                </div>
+                <Progress value={salesProgress} className="h-3" />
+                <div className="flex justify-between text-sm">
+                  <span className={salesProgress >= 100 ? "text-green-600" : "text-orange-600"}>
+                    {salesProgress.toFixed(1)}% Complete
+                  </span>
+                  <span className="text-muted-foreground">
+                    ${(metrics.salesTarget - metrics.todaysSales).toFixed(2)} remaining
+                  </span>
+                </div>
               </div>
             </CardContent>
           </Card>
 
-          {/* Enhanced Recent Stock Movements */}
-          <Card className="shadow-sm bg-white/95 backdrop-blur-sm border border-gray-200/50">
-            <CardHeader>
-              <div className="flex items-center space-x-3">
-                <div className="w-10 h-10 rounded-lg bg-gradient-to-br from-purple-500 to-pink-600 flex items-center justify-center">
-                  <BarChart3 className="h-5 w-5 text-white" />
-                </div>
-                <div>
-                  <CardTitle className="text-xl text-gray-900">Recent Stock Movements</CardTitle>
-                  <CardDescription className="text-gray-600">Latest inventory changes in your store</CardDescription>
-                </div>
-              </div>
-            </CardHeader>
-            <CardContent>
-              <div className="space-y-4">
-                {recentMovements.map((movement, index) => (
-                  <div key={movement.id} className="flex items-center justify-between p-4 rounded-lg bg-white/80 border border-gray-200/50 hover:bg-white/90 transition-all duration-300">
-                    <div className="flex items-center gap-4">
-                      <div className={`w-10 h-10 rounded-lg flex items-center justify-center bg-gradient-to-br ${movement.type === 'in' ? 'from-green-500 to-emerald-600' : movement.type === 'out' ? 'from-red-500 to-rose-600' : 'from-blue-500 to-indigo-600'}`}>
-                        {movement.type === "in" ? (
-                          <TrendingUp className="h-5 w-5 text-white" />
-                        ) : movement.type === "out" ? (
-                          <TrendingDown className="h-5 w-5 text-white" />
-                        ) : (
-                          <BarChart3 className="h-5 w-5 text-white" />
-                        )}
-                      </div>
-                      <div>
-                        <p className="font-semibold text-gray-800">{movement.productName}</p>
-                        <p className="text-sm text-gray-600">{movement.reason}</p>
-                      </div>
+          {/* Key Metrics */}
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
+            <Card>
+              <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+                <CardTitle className="text-sm font-medium">Transactions</CardTitle>
+                <ShoppingCart className="h-4 w-4 text-muted-foreground" />
+              </CardHeader>
+              <CardContent>
+                <div className="text-2xl font-bold">{metrics.transactionCount}</div>
+                <p className="text-xs text-muted-foreground">
+                  Avg: ${metrics.averageOrderValue.toFixed(2)} per order
+                </p>
+              </CardContent>
+            </Card>
+
+            <Card>
+              <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+                <CardTitle className="text-sm font-medium">Staff on Duty</CardTitle>
+                <Users className="h-4 w-4 text-muted-foreground" />
+              </CardHeader>
+              <CardContent>
+                <div className="text-2xl font-bold">{metrics.staffOnDuty}/{metrics.totalStaff}</div>
+                <p className="text-xs text-muted-foreground">
+                  {((metrics.staffOnDuty / metrics.totalStaff) * 100).toFixed(0)}% attendance
+                </p>
+              </CardContent>
+            </Card>
+
+            <Card>
+              <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+                <CardTitle className="text-sm font-medium">Low Stock Items</CardTitle>
+                <AlertTriangle className="h-4 w-4 text-orange-500" />
+              </CardHeader>
+              <CardContent>
+                <div className="text-2xl font-bold text-orange-600">{metrics.lowStockItems}</div>
+                <p className="text-xs text-muted-foreground">
+                  Require attention
+                </p>
+              </CardContent>
+            </Card>
+
+            <Card>
+              <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+                <CardTitle className="text-sm font-medium">Customer Rating</CardTitle>
+                <Star className="h-4 w-4 text-yellow-500" />
+              </CardHeader>
+              <CardContent>
+                <div className="text-2xl font-bold">{metrics.customerSatisfaction}/5</div>
+                <p className="text-xs text-muted-foreground">
+                  Based on today's feedback
+                </p>
+              </CardContent>
+            </Card>
+          </div>
+
+          {/* Main Content Grid */}
+          <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+            {/* Staff Management */}
+            <Card>
+              <CardHeader>
+                <CardTitle>Staff Management</CardTitle>
+                <CardDescription>Manage your team and track performance</CardDescription>
+              </CardHeader>
+              <CardContent>
+                <div className="space-y-4">
+                  <div className="flex justify-between items-center p-3 border rounded">
+                    <div>
+                      <p className="font-medium">John Smith</p>
+                      <p className="text-sm text-muted-foreground">Cashier - On duty</p>
                     </div>
-                    <div className="text-right">
-                      <Badge 
-                        variant={movement.type === "in" ? "default" : movement.type === "out" ? "destructive" : "secondary"}
-                        className="font-semibold"
-                      >
-                        {movement.type === "in" ? "+" : movement.type === "out" ? "-" : ""}
-                        {Math.abs(movement.quantity)}
-                      </Badge>
-                      <p className="text-xs text-gray-500 mt-1">
-                        {movement.createdAt.toLocaleDateString()}
-                      </p>
-                    </div>
+                    <Badge variant="outline" className="text-green-600">Active</Badge>
                   </div>
-                ))}
-              </div>
-            </CardContent>
-          </Card>
+                  <div className="flex justify-between items-center p-3 border rounded">
+                    <div>
+                      <p className="font-medium">Sarah Johnson</p>
+                      <p className="text-sm text-muted-foreground">Sales Associate - On duty</p>
+                    </div>
+                    <Badge variant="outline" className="text-green-600">Active</Badge>
+                  </div>
+                  <div className="flex justify-between items-center p-3 border rounded">
+                    <div>
+                      <p className="font-medium">Mike Wilson</p>
+                      <p className="text-sm text-muted-foreground">Cashier - Off duty</p>
+                    </div>
+                    <Badge variant="outline" className="text-gray-500">Off</Badge>
+                  </div>
+                  <Button className="w-full" onClick={() => router.push('/manager/staff')}>
+                    <UserPlus className="h-4 w-4 mr-2" />
+                    Manage Staff
+                  </Button>
+                </div>
+              </CardContent>
+            </Card>
+
+            {/* Quick Actions */}
+            <Card>
+              <CardHeader>
+                <CardTitle>Quick Actions</CardTitle>
+                <CardDescription>Common management tasks</CardDescription>
+              </CardHeader>
+              <CardContent>
+                <div className="grid grid-cols-2 gap-4">
+                  <Button 
+                    variant="outline" 
+                    className="h-20 flex-col"
+                    onClick={() => router.push('/manager/inventory')}
+                  >
+                    <Package className="h-6 w-6 mb-2" />
+                    Inventory
+                  </Button>
+                  <Button 
+                    variant="outline" 
+                    className="h-20 flex-col"
+                    onClick={() => router.push('/manager/sales')}
+                  >
+                    <ShoppingCart className="h-6 w-6 mb-2" />
+                    Sales
+                  </Button>
+                  <Button 
+                    variant="outline" 
+                    className="h-20 flex-col"
+                    onClick={() => router.push('/manager/reports')}
+                  >
+                    <FileText className="h-6 w-6 mb-2" />
+                    Reports
+                  </Button>
+                  <Button 
+                    variant="outline" 
+                    className="h-20 flex-col"
+                    onClick={() => console.log('Stock count initiated')}
+                  >
+                    <ClipboardList className="h-6 w-6 mb-2" />
+                    Stock Count
+                  </Button>
+                </div>
+              </CardContent>
+            </Card>
+          </div>
+
+          {/* Low Stock Alert */}
+          {metrics.lowStockItems > 0 && (
+            <Card className="border-orange-200 bg-orange-50">
+              <CardHeader>
+                <CardTitle className="flex items-center text-orange-800">
+                  <AlertTriangle className="h-5 w-5 mr-2" />
+                  Low Stock Alert
+                </CardTitle>
+                <CardDescription className="text-orange-700">
+                  {metrics.lowStockItems} items need restocking
+                </CardDescription>
+              </CardHeader>
+              <CardContent>
+                <div className="space-y-2">
+                  <div className="flex justify-between items-center">
+                    <span>Product A</span>
+                    <Badge variant="outline" className="text-orange-600">5 left</Badge>
+                  </div>
+                  <div className="flex justify-between items-center">
+                    <span>Product B</span>
+                    <Badge variant="outline" className="text-red-600">2 left</Badge>
+                  </div>
+                  <div className="flex justify-between items-center">
+                    <span>Product C</span>
+                    <Badge variant="outline" className="text-orange-600">8 left</Badge>
+                  </div>
+                </div>
+                <Button variant="outline" className="w-full mt-4" onClick={() => router.push('/manager/inventory')}>
+                  View All Low Stock Items
+                </Button>
+              </CardContent>
+            </Card>
+          )}
         </div>
-
-        {/* Enhanced Quick Actions */}
-        <Card className="shadow-sm bg-white/95 backdrop-blur-sm border border-gray-200/50">
-          <CardHeader>
-            <div className="flex items-center space-x-3">
-              <div className="w-10 h-10 rounded-lg bg-gradient-to-br from-sky-500 to-cyan-600 flex items-center justify-center">
-                <ShoppingCart className="h-5 w-5 text-white" />
-              </div>
-              <div>
-                <CardTitle className="text-xl text-gray-900">Quick Actions</CardTitle>
-                <CardDescription className="text-gray-600">Common inventory management tasks</CardDescription>
-              </div>
-            </div>
-          </CardHeader>
-          <CardContent>
-            <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-              <Card className="shadow-sm bg-white/80 border border-gray-200/50 hover:bg-white/90 cursor-pointer p-6 text-center transition-all duration-300">
-                <div className="w-16 h-16 rounded-full bg-gradient-to-br from-blue-500 to-indigo-600 flex items-center justify-center mx-auto mb-4">
-                  <Package className="h-8 w-8 text-white" />
-                </div>
-                <h3 className="font-semibold text-lg text-gray-800">Add New Product</h3>
-                <p className="text-sm text-gray-600 mt-1">Create a new inventory item</p>
-              </Card>
-              
-              <Card className="shadow-sm bg-white/80 border border-gray-200/50 hover:bg-white/90 cursor-pointer p-6 text-center transition-all duration-300">
-                <div className="w-16 h-16 rounded-full bg-gradient-to-br from-green-500 to-emerald-600 flex items-center justify-center mx-auto mb-4">
-                  <TrendingUp className="h-8 w-8 text-white" />
-                </div>
-                <h3 className="font-semibold text-lg text-gray-800">Stock Adjustment</h3>
-                <p className="text-sm text-gray-600 mt-1">Update inventory levels</p>
-              </Card>
-              
-              <Card className="shadow-sm bg-white/80 border border-gray-200/50 hover:bg-white/90 cursor-pointer p-6 text-center transition-all duration-300">
-                <div className="w-16 h-16 rounded-full bg-gradient-to-br from-purple-500 to-pink-600 flex items-center justify-center mx-auto mb-4">
-                  <BarChart3 className="h-8 w-8 text-white" />
-                </div>
-                <h3 className="font-semibold text-lg text-gray-800">Generate Report</h3>
-                <p className="text-sm text-gray-600 mt-1">View inventory analytics</p>
-              </Card>
-            </div>
-          </CardContent>
-        </Card>
       </div>
-    </DashboardLayout>
+    </RoleGuard>
   )
 }

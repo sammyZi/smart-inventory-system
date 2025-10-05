@@ -1,6 +1,6 @@
 "use client"
 
-import { useState } from "react"
+import { useState, useEffect } from "react"
 import { useAuth } from "@/components/auth-provider"
 import { DashboardLayout } from "@/components/layout/dashboard-layout"
 import { AdminSidebar } from "@/components/admin/admin-sidebar"
@@ -33,192 +33,312 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select"
-import { Plus, Search, Edit, Trash2 } from 'lucide-react'
-import { sampleUsers, sampleStores, type User } from "@/lib/sample-data" // Import sampleStores
+import { Plus, Search, Edit, Trash2, Users } from 'lucide-react'
 import { useToast } from "@/hooks/use-toast"
 
+interface StaffUser {
+  id: string
+  email: string
+  firstName: string
+  lastName: string
+  role: "MANAGER" | "STAFF"
+  locationId: string
+  isActive: boolean
+  createdAt: string
+}
+
+interface Location {
+  id: string
+  name: string
+  address?: string
+}
+
 export default function UsersPage() {
-  const { user } = useAuth()
+  const { user, tenant, accessToken } = useAuth()
   const { toast } = useToast()
-  const [users, setUsers] = useState<User[]>(sampleUsers)
+  const [staff, setStaff] = useState<StaffUser[]>([])
+  const [locations, setLocations] = useState<Location[]>([])
   const [searchTerm, setSearchTerm] = useState("")
   const [isCreateDialogOpen, setIsCreateDialogOpen] = useState(false)
-  const [isEditDialogOpen, setIsEditDialogOpen] = useState(false)
-  const [newUser, setNewUser] = useState({
-    name: "",
+  const [isLoading, setIsLoading] = useState(true)
+  const [newStaff, setNewStaff] = useState({
+    firstName: "",
+    lastName: "",
     email: "",
-    role: "pos_staff" as User["role"],
-    password: "",
-    storeId: "" // Added storeId
+    role: "STAFF" as "MANAGER" | "STAFF",
+    locationId: "",
+    phone: ""
   })
-  const [editingUser, setEditingUser] = useState<User | null>(null)
 
-  if (!user || user.role !== "admin") {
-    return <div>Access denied</div>
+  const API_BASE = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:3001/api/v1'
+
+  useEffect(() => {
+    if (accessToken && user?.role === "ADMIN") {
+      fetchStaff()
+      fetchLocations()
+    }
+  }, [accessToken, user])
+
+  const fetchStaff = async () => {
+    try {
+      const response = await fetch(`${API_BASE}/saas/staff`, {
+        headers: {
+          'Authorization': `Bearer ${accessToken}`,
+        },
+      })
+
+      if (response.ok) {
+        const data = await response.json()
+        setStaff(data.data || [])
+      }
+    } catch (error) {
+      console.error('Error fetching staff:', error)
+      toast({
+        title: "Error",
+        description: "Failed to load staff members",
+        variant: "destructive"
+      })
+    } finally {
+      setIsLoading(false)
+    }
   }
 
-  const filteredUsers = users.filter(user =>
-    user.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
-    user.email.toLowerCase().includes(searchTerm.toLowerCase()) ||
-    (user.storeId && sampleStores.find(s => s.id === user.storeId)?.name.toLowerCase().includes(searchTerm.toLowerCase()))
-  )
+  const fetchLocations = async () => {
+    try {
+      const response = await fetch(`${API_BASE}/saas/locations`, {
+        headers: {
+          'Authorization': `Bearer ${accessToken}`,
+        },
+      })
 
-  const handleCreateUser = () => {
-    if (!newUser.name || !newUser.email || !newUser.password || !newUser.role || (newUser.role !== "admin" && !newUser.storeId)) {
+      if (response.ok) {
+        const data = await response.json()
+        setLocations(data.data || [])
+      }
+    } catch (error) {
+      console.error('Error fetching locations:', error)
+    }
+  }
+
+  const handleCreateStaff = async () => {
+    if (!newStaff.firstName || !newStaff.lastName || !newStaff.email || !newStaff.locationId) {
       toast({
         title: "Missing Information",
-        description: "Please fill in all required user details, including store for non-admin roles.",
+        description: "Please fill in all required fields.",
         variant: "destructive"
       })
       return
     }
 
-    const user: User = {
-      id: (users.length + 1).toString(),
-      name: newUser.name,
-      email: newUser.email,
-      role: newUser.role,
-      status: "active",
-      storeId: newUser.role === "admin" ? undefined : newUser.storeId, // Admin has no storeId
-      createdAt: new Date()
-    }
-    
-    setUsers([...users, user])
-    setNewUser({ name: "", email: "", role: "pos_staff", password: "", storeId: "" })
-    setIsCreateDialogOpen(false)
-    
-    toast({
-      title: "User created",
-      description: "New user has been created successfully.",
-    })
-  }
+    try {
+      const response = await fetch(`${API_BASE}/saas/staff`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${accessToken}`,
+        },
+        body: JSON.stringify(newStaff),
+      })
 
-  const handleEditUser = (user: User) => {
-    setEditingUser(user)
-    setIsEditDialogOpen(true)
-  }
+      const data = await response.json()
 
-  const handleSaveUser = () => {
-    if (editingUser) {
-      setUsers(users.map(u => u.id === editingUser.id ? { ...editingUser, storeId: editingUser.role === "admin" ? undefined : editingUser.storeId } : u))
-      setIsEditDialogOpen(false)
-      setEditingUser(null)
+      if (response.ok && data.success) {
+        toast({
+          title: "Staff Created",
+          description: `${newStaff.firstName} ${newStaff.lastName} has been added successfully.`,
+        })
+        setNewStaff({ firstName: "", lastName: "", email: "", role: "STAFF", locationId: "", phone: "" })
+        setIsCreateDialogOpen(false)
+        fetchStaff() // Refresh the list
+      } else {
+        toast({
+          title: "Error",
+          description: data.message || "Failed to create staff member",
+          variant: "destructive"
+        })
+      }
+    } catch (error) {
       toast({
-        title: "User Updated",
-        description: `${editingUser.name} has been updated successfully.`,
+        title: "Error",
+        description: "Failed to create staff member",
+        variant: "destructive"
       })
     }
   }
 
-  const handleDeleteUser = (userId: string) => {
-    setUsers(users.filter(u => u.id !== userId))
-    toast({
-      title: "User deleted",
-      description: "User has been deleted successfully.",
-    })
+  const handleDeactivateStaff = async (staffId: string) => {
+    try {
+      const response = await fetch(`${API_BASE}/saas/staff/${staffId}`, {
+        method: 'DELETE',
+        headers: {
+          'Authorization': `Bearer ${accessToken}`,
+        },
+      })
+
+      const data = await response.json()
+
+      if (response.ok && data.success) {
+        toast({
+          title: "Staff Deactivated",
+          description: "Staff member has been deactivated successfully.",
+        })
+        fetchStaff() // Refresh the list
+      } else {
+        toast({
+          title: "Error",
+          description: data.message || "Failed to deactivate staff member",
+          variant: "destructive"
+        })
+      }
+    } catch (error) {
+      toast({
+        title: "Error",
+        description: "Failed to deactivate staff member",
+        variant: "destructive"
+      })
+    }
   }
 
-  const getRoleBadgeVariant = (role: User["role"]) => {
+  if (!user || user.role !== "ADMIN") {
+    return (
+      <DashboardLayout sidebar={<AdminSidebar />} title="Access Denied">
+        <div className="flex items-center justify-center min-h-[400px]">
+          <div className="text-center">
+            <Users className="h-16 w-16 mx-auto mb-4 text-muted-foreground" />
+            <h2 className="text-2xl font-bold mb-2">Access Denied</h2>
+            <p className="text-muted-foreground">Only administrators can manage staff members.</p>
+          </div>
+        </div>
+      </DashboardLayout>
+    )
+  }
+
+  const filteredStaff = staff.filter(member =>
+    `${member.firstName} ${member.lastName}`.toLowerCase().includes(searchTerm.toLowerCase()) ||
+    member.email.toLowerCase().includes(searchTerm.toLowerCase()) ||
+    locations.find(l => l.id === member.locationId)?.name.toLowerCase().includes(searchTerm.toLowerCase())
+  )
+
+  const getRoleBadgeVariant = (role: string) => {
     switch (role) {
-      case "admin":
-        return "destructive"
-      case "store_manager":
+      case "MANAGER":
         return "default"
-      case "pos_staff":
+      case "STAFF":
         return "secondary"
       default:
         return "secondary"
     }
   }
 
+  const getLocationName = (locationId: string) => {
+    return locations.find(l => l.id === locationId)?.name || "Unknown Location"
+  }
+
+  if (isLoading) {
+    return (
+      <DashboardLayout sidebar={<AdminSidebar />} title="Staff Management">
+        <div className="flex items-center justify-center min-h-[400px]">
+          <div className="animate-spin rounded-full h-32 w-32 border-b-2 border-primary"></div>
+        </div>
+      </DashboardLayout>
+    )
+  }
+
   return (
-    <DashboardLayout sidebar={<AdminSidebar />} title="User Management">
+    <DashboardLayout sidebar={<AdminSidebar />} title="Staff Management">
       <div className="space-y-6">
         {/* Header */}
         <div className="flex justify-between items-center">
           <div>
-            <h2 className="text-2xl font-bold">Users</h2>
-            <p className="text-muted-foreground">Manage system users and their roles</p>
+            <h2 className="text-2xl font-bold">Staff Management</h2>
+            <p className="text-muted-foreground">Manage your team members and their roles</p>
           </div>
           
           <Dialog open={isCreateDialogOpen} onOpenChange={setIsCreateDialogOpen}>
             <DialogTrigger asChild>
               <Button>
                 <Plus className="h-4 w-4 mr-2" />
-                Add User
+                Add Staff Member
               </Button>
             </DialogTrigger>
             <DialogContent>
               <DialogHeader>
-                <DialogTitle>Create New User</DialogTitle>
+                <DialogTitle>Create New Staff Member</DialogTitle>
                 <DialogDescription>
-                  Add a new user to the system with appropriate role permissions.
+                  Add a new team member to your organization.
                 </DialogDescription>
               </DialogHeader>
               <div className="space-y-4">
-                <div className="space-y-2">
-                  <Label htmlFor="name">Full Name</Label>
-                  <Input
-                    id="name"
-                    value={newUser.name}
-                    onChange={(e) => setNewUser({ ...newUser, name: e.target.value })}
-                    placeholder="Enter full name"
-                  />
+                <div className="grid grid-cols-2 gap-4">
+                  <div className="space-y-2">
+                    <Label htmlFor="firstName">First Name</Label>
+                    <Input
+                      id="firstName"
+                      value={newStaff.firstName}
+                      onChange={(e) => setNewStaff({ ...newStaff, firstName: e.target.value })}
+                      placeholder="Enter first name"
+                    />
+                  </div>
+                  <div className="space-y-2">
+                    <Label htmlFor="lastName">Last Name</Label>
+                    <Input
+                      id="lastName"
+                      value={newStaff.lastName}
+                      onChange={(e) => setNewStaff({ ...newStaff, lastName: e.target.value })}
+                      placeholder="Enter last name"
+                    />
+                  </div>
                 </div>
                 <div className="space-y-2">
                   <Label htmlFor="email">Email</Label>
                   <Input
                     id="email"
                     type="email"
-                    value={newUser.email}
-                    onChange={(e) => setNewUser({ ...newUser, email: e.target.value })}
+                    value={newStaff.email}
+                    onChange={(e) => setNewStaff({ ...newStaff, email: e.target.value })}
                     placeholder="Enter email address"
                   />
                 </div>
                 <div className="space-y-2">
+                  <Label htmlFor="phone">Phone (Optional)</Label>
+                  <Input
+                    id="phone"
+                    value={newStaff.phone}
+                    onChange={(e) => setNewStaff({ ...newStaff, phone: e.target.value })}
+                    placeholder="Enter phone number"
+                  />
+                </div>
+                <div className="space-y-2">
                   <Label htmlFor="role">Role</Label>
-                  <Select value={newUser.role} onValueChange={(value: User["role"]) => setNewUser({ ...newUser, role: value })}>
+                  <Select value={newStaff.role} onValueChange={(value: "MANAGER" | "STAFF") => setNewStaff({ ...newStaff, role: value })}>
                     <SelectTrigger>
                       <SelectValue placeholder="Select role" />
                     </SelectTrigger>
                     <SelectContent>
-                      <SelectItem value="admin">Admin</SelectItem>
-                      <SelectItem value="store_manager">Store Manager</SelectItem>
-                      <SelectItem value="pos_staff">POS Staff</SelectItem>
+                      <SelectItem value="MANAGER">Manager</SelectItem>
+                      <SelectItem value="STAFF">Staff</SelectItem>
                     </SelectContent>
                   </Select>
                 </div>
-                {newUser.role !== "admin" && (
-                  <div className="space-y-2">
-                    <Label htmlFor="store">Assign to Store</Label>
-                    <Select value={newUser.storeId} onValueChange={(value) => setNewUser({ ...newUser, storeId: value })}>
-                      <SelectTrigger>
-                        <SelectValue placeholder="Select store" />
-                      </SelectTrigger>
-                      <SelectContent>
-                        {sampleStores.map(store => (
-                          <SelectItem key={store.id} value={store.id}>{store.name}</SelectItem>
-                        ))}
-                      </SelectContent>
-                    </Select>
-                  </div>
-                )}
                 <div className="space-y-2">
-                  <Label htmlFor="password">Password</Label>
-                  <Input
-                    id="password"
-                    type="password"
-                    value={newUser.password}
-                    onChange={(e) => setNewUser({ ...newUser, password: e.target.value })}
-                    placeholder="Enter password"
-                  />
+                  <Label htmlFor="location">Assign to Location</Label>
+                  <Select value={newStaff.locationId} onValueChange={(value) => setNewStaff({ ...newStaff, locationId: value })}>
+                    <SelectTrigger>
+                      <SelectValue placeholder="Select location" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {locations.map(location => (
+                        <SelectItem key={location.id} value={location.id}>{location.name}</SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
                 </div>
               </div>
               <DialogFooter>
                 <Button variant="outline" onClick={() => setIsCreateDialogOpen(false)}>
                   Cancel
                 </Button>
-                <Button onClick={handleCreateUser}>Create User</Button>
+                <Button onClick={handleCreateStaff}>Create Staff Member</Button>
               </DialogFooter>
             </DialogContent>
           </Dialog>
@@ -227,13 +347,13 @@ export default function UsersPage() {
         {/* Search */}
         <Card>
           <CardHeader>
-            <CardTitle>Search Users</CardTitle>
+            <CardTitle>Search Staff</CardTitle>
           </CardHeader>
           <CardContent>
             <div className="relative">
               <Search className="absolute left-3 top-3 h-4 w-4 text-muted-foreground" />
               <Input
-                placeholder="Search by name, email or store..."
+                placeholder="Search by name, email or location..."
                 value={searchTerm}
                 onChange={(e) => setSearchTerm(e.target.value)}
                 className="pl-10"
@@ -242,133 +362,82 @@ export default function UsersPage() {
           </CardContent>
         </Card>
 
-        {/* Users Table */}
+        {/* Staff Table */}
         <Card>
           <CardHeader>
-            <CardTitle>All Users</CardTitle>
+            <CardTitle>Team Members</CardTitle>
             <CardDescription>
-              {filteredUsers.length} user{filteredUsers.length !== 1 ? 's' : ''} found
+              {filteredStaff.length} staff member{filteredStaff.length !== 1 ? 's' : ''} found
             </CardDescription>
           </CardHeader>
           <CardContent>
-            <Table>
-              <TableHeader>
-                <TableRow>
-                  <TableHead>Name</TableHead>
-                  <TableHead>Email</TableHead>
-                  <TableHead>Role</TableHead>
-                  <TableHead>Store</TableHead> {/* Added Store column */}
-                  <TableHead>Status</TableHead>
-                  <TableHead>Created</TableHead>
-                  <TableHead className="text-right">Actions</TableHead>
-                </TableRow>
-              </TableHeader>
-              <TableBody>
-                {filteredUsers.map((user) => (
-                  <TableRow key={user.id}>
-                    <TableCell className="font-medium">{user.name}</TableCell>
-                    <TableCell>{user.email}</TableCell>
-                    <TableCell>
-                      <Badge variant={getRoleBadgeVariant(user.role)}>
-                        {user.role.replace('_', ' ').toUpperCase()}
-                      </Badge>
-                    </TableCell>
-                    <TableCell>
-                      {user.storeId ? sampleStores.find(s => s.id === user.storeId)?.name || "N/A" : "Admin"}
-                    </TableCell>
-                    <TableCell>
-                      <Badge variant={user.status === "active" ? "default" : "secondary"}>
-                        {user.status}
-                      </Badge>
-                    </TableCell>
-                    <TableCell>{user.createdAt.toLocaleDateString()}</TableCell>
-                    <TableCell className="text-right">
-                      <div className="flex justify-end space-x-2">
-                        <Button variant="ghost" size="sm" onClick={() => handleEditUser(user)}>
-                          <Edit className="h-4 w-4" />
-                        </Button>
-                        <Button 
-                          variant="ghost" 
-                          size="sm"
-                          onClick={() => handleDeleteUser(user.id)}
-                        >
-                          <Trash2 className="h-4 w-4" />
-                        </Button>
-                      </div>
-                    </TableCell>
+            {filteredStaff.length > 0 ? (
+              <Table>
+                <TableHeader>
+                  <TableRow>
+                    <TableHead>Name</TableHead>
+                    <TableHead>Email</TableHead>
+                    <TableHead>Role</TableHead>
+                    <TableHead>Location</TableHead>
+                    <TableHead>Status</TableHead>
+                    <TableHead>Created</TableHead>
+                    <TableHead className="text-right">Actions</TableHead>
                   </TableRow>
-                ))}
-              </TableBody>
-            </Table>
-          </CardContent>
-        </Card>
-
-        {/* Edit User Dialog */}
-        {editingUser && (
-          <Dialog open={isEditDialogOpen} onOpenChange={setIsEditDialogOpen}>
-            <DialogContent>
-              <DialogHeader>
-                <DialogTitle>Edit User: {editingUser.name}</DialogTitle>
-                <DialogDescription>
-                  Update user details and role permissions.
-                </DialogDescription>
-              </DialogHeader>
-              <div className="space-y-4">
-                <div className="space-y-2">
-                  <Label htmlFor="edit-name">Full Name</Label>
-                  <Input
-                    id="edit-name"
-                    value={editingUser.name}
-                    onChange={(e) => setEditingUser({ ...editingUser, name: e.target.value })}
-                  />
-                </div>
-                <div className="space-y-2">
-                  <Label htmlFor="edit-email">Email</Label>
-                  <Input
-                    id="edit-email"
-                    type="email"
-                    value={editingUser.email}
-                    onChange={(e) => setEditingUser({ ...editingUser, email: e.target.value })}
-                  />
-                </div>
-                <div className="space-y-2">
-                  <Label htmlFor="edit-role">Role</Label>
-                  <Select value={editingUser.role} onValueChange={(value: User["role"]) => setEditingUser({ ...editingUser, role: value })}>
-                    <SelectTrigger>
-                      <SelectValue placeholder="Select role" />
-                    </SelectTrigger>
-                    <SelectContent>
-                      <SelectItem value="admin">Admin</SelectItem>
-                      <SelectItem value="store_manager">Store Manager</SelectItem>
-                      <SelectItem value="pos_staff">POS Staff</SelectItem>
-                    </SelectContent>
-                  </Select>
-                </div>
-                {editingUser.role !== "admin" && (
-                  <div className="space-y-2">
-                    <Label htmlFor="edit-store">Assign to Store</Label>
-                    <Select value={editingUser.storeId} onValueChange={(value) => setEditingUser({ ...editingUser, storeId: value })}>
-                      <SelectTrigger>
-                        <SelectValue placeholder="Select store" />
-                      </SelectTrigger>
-                      <SelectContent>
-                        {sampleStores.map(store => (
-                          <SelectItem key={store.id} value={store.id}>{store.name}</SelectItem>
-                        ))}
-                      </SelectContent>
-                    </Select>
-                  </div>
+                </TableHeader>
+                <TableBody>
+                  {filteredStaff.map((member) => (
+                    <TableRow key={member.id}>
+                      <TableCell className="font-medium">
+                        {member.firstName} {member.lastName}
+                      </TableCell>
+                      <TableCell>{member.email}</TableCell>
+                      <TableCell>
+                        <Badge variant={getRoleBadgeVariant(member.role)}>
+                          {member.role}
+                        </Badge>
+                      </TableCell>
+                      <TableCell>{getLocationName(member.locationId)}</TableCell>
+                      <TableCell>
+                        <Badge variant={member.isActive ? "default" : "secondary"}>
+                          {member.isActive ? "Active" : "Inactive"}
+                        </Badge>
+                      </TableCell>
+                      <TableCell>
+                        {new Date(member.createdAt).toLocaleDateString()}
+                      </TableCell>
+                      <TableCell className="text-right">
+                        <div className="flex justify-end space-x-2">
+                          <Button 
+                            variant="ghost" 
+                            size="sm"
+                            onClick={() => handleDeactivateStaff(member.id)}
+                            disabled={!member.isActive}
+                          >
+                            <Trash2 className="h-4 w-4" />
+                          </Button>
+                        </div>
+                      </TableCell>
+                    </TableRow>
+                  ))}
+                </TableBody>
+              </Table>
+            ) : (
+              <div className="text-center py-8">
+                <Users className="h-16 w-16 mx-auto mb-4 text-muted-foreground" />
+                <h3 className="text-lg font-semibold mb-2">No Staff Members</h3>
+                <p className="text-muted-foreground mb-4">
+                  {searchTerm ? "No staff members match your search." : "You haven't added any staff members yet."}
+                </p>
+                {!searchTerm && (
+                  <Button onClick={() => setIsCreateDialogOpen(true)}>
+                    <Plus className="h-4 w-4 mr-2" />
+                    Add First Staff Member
+                  </Button>
                 )}
               </div>
-              <DialogFooter>
-                <Button variant="outline" onClick={() => setIsEditDialogOpen(false)}>
-                  Cancel
-                </Button>
-                <Button onClick={handleSaveUser}>Save Changes</Button>
-              </DialogFooter>
-            </DialogContent>
-          </Dialog>
-        )}
+            )}
+          </CardContent>
+        </Card>
       </div>
     </DashboardLayout>
   )

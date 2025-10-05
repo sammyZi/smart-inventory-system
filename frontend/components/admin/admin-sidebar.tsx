@@ -5,19 +5,43 @@ import { usePathname } from "next/navigation"
 import { cn } from "@/lib/utils"
 import { LayoutDashboard, Users, Package, ShoppingCart, BarChart3, Settings, FileText, StoreIcon } from 'lucide-react'
 
-const navigation = [
-  { name: "Dashboard", href: "/admin", icon: LayoutDashboard },
-  { name: "Stores", href: "/admin/stores", icon: StoreIcon }, // Added Stores link
-  { name: "Users", href: "/admin/users", icon: Users },
-  { name: "Products", href: "/admin/products", icon: Package },
-  { name: "Sales", href: "/admin/sales", icon: ShoppingCart },
-  { name: "Reports", href: "/admin/reports", icon: BarChart3 },
-  { name: "Invoices", href: "/admin/invoices", icon: FileText },
-  { name: "Settings", href: "/admin/settings", icon: Settings },
-]
+import { useAuth } from "@/components/auth-provider"
+
+const getNavigationForRole = (role: string) => {
+  const baseNavigation = [
+    { name: "Dashboard", href: "/admin", icon: LayoutDashboard },
+  ]
+
+  if (role === "ADMIN") {
+    return [
+      ...baseNavigation,
+      { name: "Stores", href: "/admin/stores", icon: StoreIcon },
+      { name: "Products", href: "/admin/products", icon: Package },
+      { name: "Sales", href: "/admin/sales", icon: ShoppingCart },
+      { name: "Reports", href: "/admin/reports", icon: BarChart3 },
+      { name: "Invoices", href: "/admin/invoices", icon: FileText },
+      { name: "Settings", href: "/admin/settings", icon: Settings },
+    ]
+  }
+
+  if (role === "MANAGER") {
+    return [
+      ...baseNavigation,
+      { name: "Products", href: "/admin/products", icon: Package },
+      { name: "Sales", href: "/admin/sales", icon: ShoppingCart },
+      { name: "Reports", href: "/admin/reports", icon: BarChart3 },
+      { name: "Invoices", href: "/admin/invoices", icon: FileText },
+    ]
+  }
+
+  return baseNavigation
+}
 
 export function AdminSidebar() {
   const pathname = usePathname()
+  const { user } = useAuth()
+  
+  const navigation = getNavigationForRole(user?.role || "")
 
   return (
     <nav className="space-y-2">

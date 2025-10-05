@@ -1,440 +1,476 @@
 /**
- * Advanced Analytics Service for SaaS Multi-Tenant System
- * Provides AI-powered insights, predictive analytics, and business intelligence
+ * Tenant-Scoped Analytics and Reporting Service
+ * Provides role-filtered analytics with data isolation
  */
 
-import { PrismaClient } from '@prisma/client';
-import { logger } from '../utils/logger';
+import { UserContext } from '../middleware/permissions'
 
-const prisma = new PrismaClient();
-
-export interface TenantAnalytics {
-  tenantId: string;
-  period: 'day' | 'week' | 'month' | 'year';
-  metrics: {
-    revenue: {
-      current: number;
-      previous: number;
-      growth: number;
-      trend: 'up' | 'down' | 'stable';
-    };
-    transactions: {
-      count: number;
-      averageValue: number;
-      growth: number;
-    };
-    inventory: {
-      totalProducts: number;
-      lowStockItems: number;
-      turnoverRate: number;
-      deadStock: number;
-    };
-    users: {
-      activeUsers: number;
-      newUsers: number;
-      userGrowth: number;
-    };
-    locations: {
-      totalLocations: number;
-      topPerforming: Array<{ locationId: string; name: string; revenue: number }>;
-    };
-  };
-  insights: Array<{
-    type: 'opportunity' | 'warning' | 'success' | 'info';
-    title: string;
-    description: string;
-    impact: 'high' | 'medium' | 'low';
-    actionable: boolean;
-    recommendation?: string;
-  }>;
-  predictions: {
-    nextMonthRevenue: number;
-    inventoryNeeds: Array<{ productId: string; predictedDemand: number; recommendedOrder: number }>;
-    seasonalTrends: Array<{ period: string; expectedGrowth: number }>;
-  };
+export interface AnalyticsMetrics {
+  // Sales Metrics
+  totalSales: number
+  totalTransactions: number
+  averageOrderValue: number
+  salesGrowth: number
+  
+  // Inventory Metrics
+  totalProducts: number
+  lowStockItems: number
+  inventoryValue: number
+  inventoryTurnover: number
+  
+  // Performance Metrics
+  topProducts: ProductPerformance[]
+  salesByCategory: CategorySales[]
+  salesByLocation: LocationSales[]
+  salesByTimeframe: TimeframeSales[]
+  
+  // Staff Metrics (Manager/Admin only)
+  staffPerformance?: StaffPerformance[]
+  customerSatisfaction?: number
+  
+  // Financial Metrics (Admin only)
+  revenue?: number
+  profit?: number
+  expenses?: number
+  profitMargin?: number
 }
 
-export interface CompetitiveAnalysis {
-  tenantId: string;
-  industryBenchmarks: {
-    averageRevenue: number;
-    averageGrowthRate: number;
-    averageInventoryTurnover: number;
-  };
-  tenantPosition: 'above_average' | 'average' | 'below_average';
-  recommendations: string[];
+export interface ProductPerformance {
+  productId: string
+  productName: string
+  quantity: number
+  revenue: number
+  profit?: number // Admin/Manager only
+}
+
+export interface CategorySales {
+  category: string
+  sales: number
+  growth: number
+}
+
+export interface LocationSales {
+  locationId: string
+  locationName: string
+  sales: number
+  transactions: number
+  growth: number
+}
+
+export interface TimeframeSales {
+  period: string
+  sales: number
+  transactions: number
+}
+
+export interface StaffPerformance {
+  staffId: string
+  staffName: string
+  sales: number
+  transactions: number
+  averageServiceTime: number
+  customerRating: number
+}
+
+export interface ReportFilters {
+  dateRange: {
+    startDate: Date
+    endDate: Date
+  }
+  locationIds?: string[]
+  categoryIds?: string[]
+  productIds?: string[]
+  staffIds?: string[]
+  reportType: 'sales' | 'inventory' | 'staff' | 'financial' | 'comprehensive'
+}
+
+export interface ExportOptions {
+  format: 'pdf' | 'excel' | 'csv'
+  includeCharts: boolean
+  includeDetails: boolean
+  template?: string
 }
 
 export class AnalyticsService {
   /**
-   * Generate comprehensive tenant analytics
+   * Get dashboard metrics with role-based filtering
    */
-  static async generateTenantAnalytics(
-    tenantId: string, 
-    period: 'day' | 'week' | 'month' | 'year' = 'month'
-  ): Promise<TenantAnalytics> {
-    try {
-      logger.info(`Generating analytics for tenant ${tenantId} (${period})`);
+  async getDashboardMetrics(
+    userContext: UserContext,
+    filters?: Partial<ReportFilters>
+  ): Promise<AnalyticsMetrics> {
+    const { role, storeIds, tenantId } = userContext
 
-      // Get date range for the period
-      const { startDate, endDate, previousStartDate, previousEndDate } = this.getDateRange(period);
-
-      // Fetch current period data
-      const [
-        currentRevenue,
-        previousRevenue,
-        transactionData,
-        inventoryData,
-        userData,
-        locationData
-      ] = await Promise.all([
-        this.getRevenueData(tenantId, startDate, endDate),
-        this.getRevenueData(tenantId, previousStartDate, previousEndDate),
-        this.getTransactionData(tenantId, startDate, endDate),
-        this.getInventoryData(tenantId),
-        this.getUserData(tenantId, startDate, endDate),
-        this.getLocationData(tenantId, startDate, endDate)
-      ]);
-
-      // Calculate metrics
-      const revenueGrowth = previousRevenue > 0 ? 
-        ((currentRevenue - previousRevenue) / previousRevenue) * 100 : 0;
-
-      const analytics: TenantAnalytics = {
-        tenantId,
-        period,
-        metrics: {
-          revenue: {
-            current: currentRevenue,
-            previous: previousRevenue,
-            growth: revenueGrowth,
-            trend: revenueGrowth > 5 ? 'up' : revenueGrowth < -5 ? 'down' : 'stable'
-          },
-          transactions: transactionData,
-          inventory: inventoryData,
-          users: userData,
-          locations: locationData
-        },
-        insights: await this.generateInsights(tenantId, {
-          revenueGrowth,
-          transactionData,
-          inventoryData,
-          userData
-        }),
-        predictions: await this.generatePredictions(tenantId)
-      };
-
-      return analytics;
-
-    } catch (error) {
-      logger.error(`Error generating analytics for tenant ${tenantId}:`, error);
-      throw error;
-    }
-  }
-
-  /**
-   * Generate AI-powered business insights
-   */
-  private static async generateInsights(
-    tenantId: string, 
-    data: any
-  ): Promise<TenantAnalytics['insights']> {
-    const insights: TenantAnalytics['insights'] = [];
-
-    // Revenue insights
-    if (data.revenueGrowth > 20) {
-      insights.push({
-        type: 'success',
-        title: 'Exceptional Revenue Growth',
-        description: `Revenue has grown by ${data.revenueGrowth.toFixed(1)}% this period`,
-        impact: 'high',
-        actionable: true,
-        recommendation: 'Consider expanding inventory or adding new locations to capitalize on growth'
-      });
-    } else if (data.revenueGrowth < -10) {
-      insights.push({
-        type: 'warning',
-        title: 'Revenue Decline Detected',
-        description: `Revenue has decreased by ${Math.abs(data.revenueGrowth).toFixed(1)}% this period`,
-        impact: 'high',
-        actionable: true,
-        recommendation: 'Review pricing strategy and customer acquisition efforts'
-      });
-    }
-
-    // Inventory insights
-    if (data.inventoryData.lowStockItems > 10) {
-      insights.push({
-        type: 'warning',
-        title: 'Multiple Low Stock Items',
-        description: `${data.inventoryData.lowStockItems} products are running low on stock`,
-        impact: 'medium',
-        actionable: true,
-        recommendation: 'Set up automated reorder points to prevent stockouts'
-      });
-    }
-
-    if (data.inventoryData.turnoverRate < 2) {
-      insights.push({
-        type: 'opportunity',
-        title: 'Slow Inventory Turnover',
-        description: 'Inventory is turning over slowly, indicating potential overstocking',
-        impact: 'medium',
-        actionable: true,
-        recommendation: 'Consider promotional campaigns or adjust purchasing strategy'
-      });
-    }
-
-    // User growth insights
-    if (data.userData.userGrowth > 50) {
-      insights.push({
-        type: 'success',
-        title: 'Strong Team Growth',
-        description: `Team has grown by ${data.userData.userGrowth}% this period`,
-        impact: 'medium',
-        actionable: false
-      });
-    }
-
-    // AI-powered seasonal insights
-    const seasonalInsight = this.getSeasonalInsight();
-    if (seasonalInsight) {
-      insights.push(seasonalInsight);
-    }
-
-    return insights;
-  }
-
-  /**
-   * Generate predictive analytics
-   */
-  private static async generatePredictions(tenantId: string): Promise<TenantAnalytics['predictions']> {
-    try {
-      // Simple predictive model (in real implementation, this would use ML)
-      const historicalData = await this.getHistoricalData(tenantId, 6); // Last 6 months
-      
-      // Predict next month revenue using linear regression
-      const nextMonthRevenue = this.predictRevenue(historicalData);
-      
-      // Generate inventory predictions
-      const inventoryNeeds = await this.predictInventoryNeeds(tenantId);
-      
-      // Generate seasonal trends
-      const seasonalTrends = this.generateSeasonalTrends();
-
-      return {
-        nextMonthRevenue,
-        inventoryNeeds,
-        seasonalTrends
-      };
-
-    } catch (error) {
-      logger.error(`Error generating predictions for tenant ${tenantId}:`, error);
-      return {
-        nextMonthRevenue: 0,
-        inventoryNeeds: [],
-        seasonalTrends: []
-      };
-    }
-  }
-
-  /**
-   * Get competitive analysis
-   */
-  static async getCompetitiveAnalysis(tenantId: string): Promise<CompetitiveAnalysis> {
-    try {
-      // Get tenant metrics
-      const tenantAnalytics = await this.generateTenantAnalytics(tenantId, 'month');
-      
-      // Industry benchmarks (would come from external data in real implementation)
-      const industryBenchmarks = {
-        averageRevenue: 50000,
-        averageGrowthRate: 15,
-        averageInventoryTurnover: 4
-      };
-
-      // Determine position
-      const tenantRevenue = tenantAnalytics.metrics.revenue.current;
-      const tenantGrowth = tenantAnalytics.metrics.revenue.growth;
-      const tenantTurnover = tenantAnalytics.metrics.inventory.turnoverRate;
-
-      let position: 'above_average' | 'average' | 'below_average' = 'average';
-      
-      const aboveAverageCount = [
-        tenantRevenue > industryBenchmarks.averageRevenue,
-        tenantGrowth > industryBenchmarks.averageGrowthRate,
-        tenantTurnover > industryBenchmarks.averageInventoryTurnover
-      ].filter(Boolean).length;
-
-      if (aboveAverageCount >= 2) position = 'above_average';
-      else if (aboveAverageCount === 0) position = 'below_average';
-
-      // Generate recommendations
-      const recommendations = [];
-      if (tenantRevenue < industryBenchmarks.averageRevenue) {
-        recommendations.push('Focus on customer acquisition and retention strategies');
-      }
-      if (tenantGrowth < industryBenchmarks.averageGrowthRate) {
-        recommendations.push('Implement growth initiatives such as new product lines or market expansion');
-      }
-      if (tenantTurnover < industryBenchmarks.averageInventoryTurnover) {
-        recommendations.push('Optimize inventory management to improve turnover rates');
-      }
-
-      return {
-        tenantId,
-        industryBenchmarks,
-        tenantPosition: position,
-        recommendations
-      };
-
-    } catch (error) {
-      logger.error(`Error generating competitive analysis for tenant ${tenantId}:`, error);
-      throw error;
-    }
-  }
-
-  /**
-   * Helper methods for data fetching
-   */
-  private static getDateRange(period: string) {
-    const now = new Date();
-    let startDate: Date, endDate: Date, previousStartDate: Date, previousEndDate: Date;
-
-    switch (period) {
-      case 'day':
-        startDate = new Date(now.getFullYear(), now.getMonth(), now.getDate());
-        endDate = new Date(now.getFullYear(), now.getMonth(), now.getDate() + 1);
-        previousStartDate = new Date(now.getFullYear(), now.getMonth(), now.getDate() - 1);
-        previousEndDate = startDate;
-        break;
-      case 'week':
-        const weekStart = now.getDate() - now.getDay();
-        startDate = new Date(now.getFullYear(), now.getMonth(), weekStart);
-        endDate = new Date(now.getFullYear(), now.getMonth(), weekStart + 7);
-        previousStartDate = new Date(now.getFullYear(), now.getMonth(), weekStart - 7);
-        previousEndDate = startDate;
-        break;
-      case 'month':
-        startDate = new Date(now.getFullYear(), now.getMonth(), 1);
-        endDate = new Date(now.getFullYear(), now.getMonth() + 1, 1);
-        previousStartDate = new Date(now.getFullYear(), now.getMonth() - 1, 1);
-        previousEndDate = startDate;
-        break;
-      case 'year':
-        startDate = new Date(now.getFullYear(), 0, 1);
-        endDate = new Date(now.getFullYear() + 1, 0, 1);
-        previousStartDate = new Date(now.getFullYear() - 1, 0, 1);
-        previousEndDate = startDate;
-        break;
-      default:
-        throw new Error('Invalid period');
-    }
-
-    return { startDate, endDate, previousStartDate, previousEndDate };
-  }
-
-  private static async getRevenueData(tenantId: string, startDate: Date, endDate: Date): Promise<number> {
-    // Mock implementation - would query actual transaction data
-    return Math.floor(Math.random() * 50000) + 10000;
-  }
-
-  private static async getTransactionData(tenantId: string, startDate: Date, endDate: Date) {
-    // Mock implementation
-    const count = Math.floor(Math.random() * 100) + 20;
-    const averageValue = Math.floor(Math.random() * 200) + 50;
-    return {
-      count,
-      averageValue,
-      growth: Math.floor(Math.random() * 40) - 20
-    };
-  }
-
-  private static async getInventoryData(tenantId: string) {
-    // Mock implementation
-    return {
-      totalProducts: Math.floor(Math.random() * 1000) + 100,
-      lowStockItems: Math.floor(Math.random() * 20),
-      turnoverRate: Math.random() * 5 + 1,
-      deadStock: Math.floor(Math.random() * 50)
-    };
-  }
-
-  private static async getUserData(tenantId: string, startDate: Date, endDate: Date) {
-    // Mock implementation
-    return {
-      activeUsers: Math.floor(Math.random() * 20) + 5,
-      newUsers: Math.floor(Math.random() * 5),
-      userGrowth: Math.floor(Math.random() * 100)
-    };
-  }
-
-  private static async getLocationData(tenantId: string, startDate: Date, endDate: Date) {
-    // Mock implementation
-    return {
-      totalLocations: Math.floor(Math.random() * 5) + 1,
-      topPerforming: [
-        { locationId: '1', name: 'Main Store', revenue: 25000 },
-        { locationId: '2', name: 'Branch Store', revenue: 15000 }
-      ]
-    };
-  }
-
-  private static getSeasonalInsight() {
-    const month = new Date().getMonth();
-    const seasonalInsights = {
-      11: { // December
-        type: 'opportunity' as const,
-        title: 'Holiday Season Opportunity',
-        description: 'December typically sees 30-40% higher sales',
-        impact: 'high' as const,
-        actionable: true,
-        recommendation: 'Increase inventory for popular items and plan holiday promotions'
-      },
-      0: { // January
-        type: 'info' as const,
-        title: 'Post-Holiday Adjustment',
-        description: 'January typically sees reduced sales after holiday season',
-        impact: 'medium' as const,
-        actionable: true,
-        recommendation: 'Focus on inventory clearance and customer retention'
-      }
-    };
-
-    return seasonalInsights[month] || null;
-  }
-
-  private static async getHistoricalData(tenantId: string, months: number) {
-    // Mock historical data
-    return Array.from({ length: months }, (_, i) => ({
-      month: i + 1,
-      revenue: Math.floor(Math.random() * 40000) + 20000
-    }));
-  }
-
-  private static predictRevenue(historicalData: any[]): number {
-    // Simple linear regression prediction
-    if (historicalData.length < 2) return 0;
+    // Base query with tenant isolation
+    const baseQuery = { tenantId }
     
-    const revenues = historicalData.map(d => d.revenue);
-    const trend = (revenues[revenues.length - 1] - revenues[0]) / revenues.length;
-    return Math.max(0, revenues[revenues.length - 1] + trend);
+    // Apply role-based store filtering
+    if (role === 'MANAGER' || role === 'STAFF') {
+      baseQuery.storeId = { in: storeIds }
+    }
+
+    // Apply date range filter
+    const dateRange = filters?.dateRange || this.getDefaultDateRange()
+    
+    try {
+      // Get sales metrics
+      const salesMetrics = await this.getSalesMetrics(baseQuery, dateRange, role)
+      
+      // Get inventory metrics
+      const inventoryMetrics = await this.getInventoryMetrics(baseQuery, role)
+      
+      // Get performance metrics
+      const performanceMetrics = await this.getPerformanceMetrics(baseQuery, dateRange, role)
+      
+      // Combine metrics based on role permissions
+      const metrics: AnalyticsMetrics = {
+        ...salesMetrics,
+        ...inventoryMetrics,
+        ...performanceMetrics
+      }
+
+      // Add role-specific metrics
+      if (role === 'ADMIN' || role === 'MANAGER') {
+        metrics.staffPerformance = await this.getStaffPerformance(baseQuery, dateRange)
+        metrics.customerSatisfaction = await this.getCustomerSatisfaction(baseQuery, dateRange)
+      }
+
+      if (role === 'ADMIN') {
+        const financialMetrics = await this.getFinancialMetrics(baseQuery, dateRange)
+        metrics.revenue = financialMetrics.revenue
+        metrics.profit = financialMetrics.profit
+        metrics.expenses = financialMetrics.expenses
+        metrics.profitMargin = financialMetrics.profitMargin
+      }
+
+      return metrics
+    } catch (error) {
+      console.error('Error fetching dashboard metrics:', error)
+      throw new Error('Failed to fetch analytics data')
+    }
   }
 
-  private static async predictInventoryNeeds(tenantId: string) {
-    // Mock inventory predictions
-    return [
-      { productId: '1', predictedDemand: 100, recommendedOrder: 150 },
-      { productId: '2', predictedDemand: 50, recommendedOrder: 75 }
-    ];
+  /**
+   * Generate comprehensive report with role-based data access
+   */
+  async generateReport(
+    userContext: UserContext,
+    filters: ReportFilters
+  ): Promise<any> {
+    const { role, storeIds, tenantId } = userContext
+
+    // Validate report type permissions
+    if (!this.canAccessReportType(role, filters.reportType)) {
+      throw new Error(`Insufficient permissions for ${filters.reportType} report`)
+    }
+
+    // Apply role-based filtering
+    const query = this.buildReportQuery(userContext, filters)
+
+    try {
+      switch (filters.reportType) {
+        case 'sales':
+          return await this.generateSalesReport(query, filters)
+        case 'inventory':
+          return await this.generateInventoryReport(query, filters)
+        case 'staff':
+          return await this.generateStaffReport(query, filters)
+        case 'financial':
+          return await this.generateFinancialReport(query, filters)
+        case 'comprehensive':
+          return await this.generateComprehensiveReport(query, filters)
+        default:
+          throw new Error('Invalid report type')
+      }
+    } catch (error) {
+      console.error('Error generating report:', error)
+      throw new Error('Failed to generate report')
+    }
   }
 
-  private static generateSeasonalTrends() {
+  /**
+   * Export report data in specified format
+   */
+  async exportReport(
+    userContext: UserContext,
+    reportData: any,
+    options: ExportOptions
+  ): Promise<Buffer> {
+    const { role } = userContext
+
+    // Filter sensitive data based on role
+    const filteredData = this.filterSensitiveData(reportData, role)
+
+    try {
+      switch (options.format) {
+        case 'pdf':
+          return await this.exportToPDF(filteredData, options)
+        case 'excel':
+          return await this.exportToExcel(filteredData, options)
+        case 'csv':
+          return await this.exportToCSV(filteredData, options)
+        default:
+          throw new Error('Unsupported export format')
+      }
+    } catch (error) {
+      console.error('Error exporting report:', error)
+      throw new Error('Failed to export report')
+    }
+  }
+
+  /**
+   * Get real-time analytics for live dashboards
+   */
+  async getRealtimeMetrics(
+    userContext: UserContext
+  ): Promise<Partial<AnalyticsMetrics>> {
+    const { role, storeIds, tenantId } = userContext
+
+    try {
+      // Get today's metrics
+      const today = new Date()
+      const startOfDay = new Date(today.getFullYear(), today.getMonth(), today.getDate())
+      
+      const baseQuery = { 
+        tenantId,
+        createdAt: { gte: startOfDay }
+      }
+
+      if (role === 'MANAGER' || role === 'STAFF') {
+        baseQuery.storeId = { in: storeIds }
+      }
+
+      // Get real-time sales data
+      const todaysSales = await this.getTodaysSales(baseQuery)
+      const todaysTransactions = await this.getTodaysTransactions(baseQuery)
+      
+      return {
+        totalSales: todaysSales,
+        totalTransactions: todaysTransactions,
+        averageOrderValue: todaysTransactions > 0 ? todaysSales / todaysTransactions : 0
+      }
+    } catch (error) {
+      console.error('Error fetching realtime metrics:', error)
+      throw new Error('Failed to fetch realtime data')
+    }
+  }
+
+  // Private helper methods
+
+  private async getSalesMetrics(query: any, dateRange: any, role: string) {
+    // Mock implementation - replace with actual database queries
+    return {
+      totalSales: 45231.89,
+      totalTransactions: 1234,
+      averageOrderValue: 36.67,
+      salesGrowth: 15.2
+    }
+  }
+
+  private async getInventoryMetrics(query: any, role: string) {
+    // Mock implementation
+    return {
+      totalProducts: 456,
+      lowStockItems: 23,
+      inventoryValue: 125000,
+      inventoryTurnover: 4.2
+    }
+  }
+
+  private async getPerformanceMetrics(query: any, dateRange: any, role: string) {
+    // Mock implementation
+    return {
+      topProducts: [
+        { productId: '1', productName: 'Product A', quantity: 150, revenue: 4500 },
+        { productId: '2', productName: 'Product B', quantity: 120, revenue: 3600 }
+      ],
+      salesByCategory: [
+        { category: 'Electronics', sales: 15000, growth: 12.5 },
+        { category: 'Clothing', sales: 12000, growth: 8.3 }
+      ],
+      salesByLocation: [
+        { locationId: '1', locationName: 'Downtown', sales: 20000, transactions: 500, growth: 15.2 },
+        { locationId: '2', locationName: 'Mall', sales: 15000, transactions: 380, growth: 10.1 }
+      ],
+      salesByTimeframe: [
+        { period: '2024-01-01', sales: 5000, transactions: 125 },
+        { period: '2024-01-02', sales: 5500, transactions: 140 }
+      ]
+    }
+  }
+
+  private async getStaffPerformance(query: any, dateRange: any): Promise<StaffPerformance[]> {
+    // Mock implementation
     return [
-      { period: 'Q1', expectedGrowth: 5 },
-      { period: 'Q2', expectedGrowth: 15 },
-      { period: 'Q3', expectedGrowth: 10 },
-      { period: 'Q4', expectedGrowth: 25 }
-    ];
+      {
+        staffId: '1',
+        staffName: 'John Smith',
+        sales: 8500,
+        transactions: 215,
+        averageServiceTime: 4.2,
+        customerRating: 4.8
+      }
+    ]
+  }
+
+  private async getCustomerSatisfaction(query: any, dateRange: any): Promise<number> {
+    return 4.6
+  }
+
+  private async getFinancialMetrics(query: any, dateRange: any) {
+    return {
+      revenue: 45231.89,
+      profit: 13569.57,
+      expenses: 31662.32,
+      profitMargin: 30.0
+    }
+  }
+
+  private canAccessReportType(role: string, reportType: string): boolean {
+    const permissions = {
+      'sales': ['ADMIN', 'MANAGER'],
+      'inventory': ['ADMIN', 'MANAGER'],
+      'staff': ['ADMIN', 'MANAGER'],
+      'financial': ['ADMIN'],
+      'comprehensive': ['ADMIN']
+    }
+
+    return permissions[reportType]?.includes(role) || false
+  }
+
+  private buildReportQuery(userContext: UserContext, filters: ReportFilters) {
+    const { role, storeIds, tenantId } = userContext
+    
+    const query = {
+      tenantId,
+      createdAt: {
+        gte: filters.dateRange.startDate,
+        lte: filters.dateRange.endDate
+      }
+    }
+
+    // Apply role-based store filtering
+    if (role === 'MANAGER' || role === 'STAFF') {
+      query.storeId = { in: storeIds }
+    }
+
+    // Apply additional filters
+    if (filters.locationIds && role === 'ADMIN') {
+      query.storeId = { in: filters.locationIds }
+    }
+
+    return query
+  }
+
+  private async generateSalesReport(query: any, filters: ReportFilters) {
+    // Mock implementation
+    return {
+      title: 'Sales Report',
+      period: `${filters.dateRange.startDate.toDateString()} - ${filters.dateRange.endDate.toDateString()}`,
+      summary: {
+        totalSales: 45231.89,
+        totalTransactions: 1234,
+        averageOrderValue: 36.67
+      },
+      details: []
+    }
+  }
+
+  private async generateInventoryReport(query: any, filters: ReportFilters) {
+    // Mock implementation
+    return {
+      title: 'Inventory Report',
+      summary: {
+        totalProducts: 456,
+        lowStockItems: 23,
+        inventoryValue: 125000
+      }
+    }
+  }
+
+  private async generateStaffReport(query: any, filters: ReportFilters) {
+    // Mock implementation
+    return {
+      title: 'Staff Performance Report',
+      summary: {
+        totalStaff: 15,
+        averagePerformance: 4.2
+      }
+    }
+  }
+
+  private async generateFinancialReport(query: any, filters: ReportFilters) {
+    // Mock implementation
+    return {
+      title: 'Financial Report',
+      summary: {
+        revenue: 45231.89,
+        profit: 13569.57,
+        profitMargin: 30.0
+      }
+    }
+  }
+
+  private async generateComprehensiveReport(query: any, filters: ReportFilters) {
+    // Mock implementation combining all reports
+    return {
+      title: 'Comprehensive Business Report',
+      sections: {
+        sales: await this.generateSalesReport(query, filters),
+        inventory: await this.generateInventoryReport(query, filters),
+        staff: await this.generateStaffReport(query, filters),
+        financial: await this.generateFinancialReport(query, filters)
+      }
+    }
+  }
+
+  private filterSensitiveData(data: any, role: string) {
+    // Remove sensitive financial data for non-admin roles
+    if (role !== 'ADMIN') {
+      delete data.profit
+      delete data.expenses
+      delete data.profitMargin
+      delete data.cost
+    }
+
+    if (role === 'STAFF') {
+      delete data.staffPerformance
+      delete data.customerSatisfaction
+    }
+
+    return data
+  }
+
+  private async exportToPDF(data: any, options: ExportOptions): Promise<Buffer> {
+    // Mock PDF generation - implement with library like puppeteer or jsPDF
+    return Buffer.from('PDF content placeholder')
+  }
+
+  private async exportToExcel(data: any, options: ExportOptions): Promise<Buffer> {
+    // Mock Excel generation - implement with library like exceljs
+    return Buffer.from('Excel content placeholder')
+  }
+
+  private async exportToCSV(data: any, options: ExportOptions): Promise<Buffer> {
+    // Mock CSV generation
+    const csv = 'Date,Sales,Transactions\n2024-01-01,5000,125\n2024-01-02,5500,140'
+    return Buffer.from(csv)
+  }
+
+  private getDefaultDateRange() {
+    const endDate = new Date()
+    const startDate = new Date()
+    startDate.setDate(startDate.getDate() - 30) // Last 30 days
+    return { startDate, endDate }
+  }
+
+  private async getTodaysSales(query: any): Promise<number> {
+    // Mock implementation
+    return 1234.56
+  }
+
+  private async getTodaysTransactions(query: any): Promise<number> {
+    // Mock implementation
+    return 45
   }
 }

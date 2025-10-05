@@ -12,15 +12,17 @@ export default function HomePage() {
     if (user) {
       // Redirect based on role
       switch (user.role) {
-        case "admin":
+        case "ADMIN":
           router.push("/admin")
           break
-        case "store_manager":
+        case "MANAGER":
           router.push("/manager")
           break
-        case "pos_staff":
+        case "STAFF":
           router.push("/pos")
           break
+        default:
+          router.push("/login")
       }
     } else {
       router.push("/login")

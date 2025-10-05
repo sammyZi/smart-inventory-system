@@ -7,7 +7,8 @@ import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Alert, AlertDescription } from "@/components/ui/alert"
-import { Package, Eye, EyeOff, Shield, Users, ShoppingCart } from 'lucide-react'
+import { Package, Eye, EyeOff } from 'lucide-react'
+import Link from "next/link"
 
 export default function LoginPage() {
   const [email, setEmail] = useState("")
@@ -28,16 +29,7 @@ export default function LoginPage() {
     setIsLoading(false)
   }
 
-  const handleDemoLogin = (demoEmail: string, demoPassword: string) => {
-    setEmail(demoEmail)
-    setPassword(demoPassword)
-  }
 
-  const demoCredentials = [
-    { role: "Administrator", email: "admin@company.com", password: "password", icon: Shield },
-    { role: "Store Manager", email: "manager@company.com", password: "password", icon: Users },
-    { role: "POS Staff", email: "staff@company.com", password: "password", icon: ShoppingCart }
-  ]
 
   return (
     <div className="min-h-screen bg-secondary/40 flex items-center justify-center p-4">
@@ -52,23 +44,23 @@ export default function LoginPage() {
             <h1 className="text-4xl font-bold text-foreground">InvBill</h1>
           </div>
           <p className="text-lg text-muted-foreground">
-            A complete inventory and billing solution designed for modern businesses.
-            Log in to access your dashboard.
+            Sign in to access your dashboard. Staff accounts are created by administrators.
           </p>
-          <div className="space-y-2 pt-4">
-            <p className="font-semibold text-foreground">Quick Demo Access:</p>
-            <div className="flex flex-col space-y-2">
-              {demoCredentials.map((cred) => (
-                <Button 
-                  key={cred.role}
-                  variant="outline" 
-                  className="justify-start"
-                  onClick={() => handleDemoLogin(cred.email, cred.password)}
-                >
-                  <cred.icon className="mr-2 h-4 w-4" />
-                  Log in as {cred.role}
-                </Button>
-              ))}
+          <div className="space-y-4 pt-6">
+            <div className="bg-card p-4 rounded-lg border">
+              <h3 className="font-semibold text-foreground mb-2">Business Owner?</h3>
+              <p className="text-sm text-muted-foreground mb-3">
+                Create your business account to get started. Only business owners can sign up directly.
+              </p>
+              <Button variant="outline" className="w-full" asChild>
+                <Link href="/signup">Create Business Account</Link>
+              </Button>
+            </div>
+            <div className="bg-muted/50 p-4 rounded-lg">
+              <h4 className="font-medium text-sm mb-2">Staff & Managers</h4>
+              <p className="text-xs text-muted-foreground">
+                Your account is created by your administrator. Use the login credentials provided by your business owner.
+              </p>
             </div>
           </div>
         </div>
@@ -129,22 +121,14 @@ export default function LoginPage() {
                 {isLoading ? "Signing in..." : "Sign In"}
               </Button>
             </form>
-            <div className="lg:hidden space-y-2 pt-6">
-              <p className="font-semibold text-foreground text-sm text-center">Quick Demo Access:</p>
-              <div className="flex flex-col space-y-2">
-                {demoCredentials.map((cred) => (
-                  <Button 
-                    key={cred.role}
-                    variant="outline" 
-                    size="sm"
-                    className="justify-start"
-                    onClick={() => handleDemoLogin(cred.email, cred.password)}
-                  >
-                    <cred.icon className="mr-2 h-4 w-4" />
-                    Log in as {cred.role}
-                  </Button>
-                ))}
-              </div>
+            
+            <div className="text-center pt-4">
+              <p className="text-sm text-muted-foreground">
+                Don't have an account?{" "}
+                <Link href="/signup" className="text-primary hover:underline font-medium">
+                  Create business account
+                </Link>
+              </p>
             </div>
           </CardContent>
         </Card>

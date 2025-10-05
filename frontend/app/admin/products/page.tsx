@@ -59,9 +59,22 @@ export default function AdminProductsPage() {
   const [editingProduct, setEditingProduct] = useState<Product | null>(null)
   const [selectedStoreFilter, setSelectedStoreFilter] = useState<string>("all") // For filtering products by store
 
-  if (!user || user.role !== "admin") {
-    return <div>Access denied</div>
+  if (!user || (user.role !== "ADMIN" && user.role !== "MANAGER")) {
+    return (
+      <DashboardLayout sidebar={<AdminSidebar />} title="Access Denied">
+        <div className="flex items-center justify-center min-h-[400px]">
+          <div className="text-center">
+            <Package className="h-16 w-16 mx-auto mb-4 text-muted-foreground" />
+            <h2 className="text-2xl font-bold mb-2">Access Denied</h2>
+            <p className="text-muted-foreground">Only administrators and managers can view products.</p>
+          </div>
+        </div>
+      </DashboardLayout>
+    )
   }
+
+  const isAdmin = user.role === "ADMIN"
+  const canEdit = user.role === "MANAGER"
 
   const filteredProducts = products.filter(product =>
     (selectedStoreFilter === "all" || product.storeId === selectedStoreFilter) &&

@@ -17,7 +17,11 @@ export const metadata: Metadata = {
   generator: 'v0.dev',
   keywords: ["inventory", "billing", "business", "management", "POS", "modern"],
   authors: [{ name: "Your Company" }],
-  viewport: "width=device-width, initial-scale=1",
+}
+
+export const viewport = {
+  width: 'device-width',
+  initialScale: 1,
 }
 
 export default function RootLayout({
