@@ -18,6 +18,7 @@ import { connectRedis } from './config/redis';
 import { initializeFirebase } from './config/firebase';
 import { RealtimeService } from './services/realtimeService';
 import { EmailService } from './services/emailService';
+import { initializeGeminiAI } from './services/geminiAIService';
 
 // Load environment variables
 dotenv.config();
@@ -95,6 +96,7 @@ import inventoryRoutes from './routes/inventory';
 import realtimeRoutes from './routes/realtime';
 import billingRoutes from './routes/billing';
 import pricingRoutes from './routes/pricing';
+import aiRoutes from './routes/ai';
 
 // API routes
 app.use('/api/v1/auth', authRoutes);
@@ -106,6 +108,7 @@ app.use('/api/v1/inventory', inventoryRoutes);
 app.use('/api/v1/realtime', realtimeRoutes);
 app.use('/api/v1/billing', billingRoutes);
 app.use('/api/v1/pricing', pricingRoutes);
+app.use('/api/v1/ai', aiRoutes);
 
 // API info endpoint
 app.get('/api/v1', (req, res) => {
@@ -119,6 +122,7 @@ app.get('/api/v1', (req, res) => {
       products: '/api/v1/products',
       inventory: '/api/v1/inventory',
       saas: '/api/v1/saas',
+      ai: '/api/v1/ai',
       test: '/api/v1/test',
       health: '/health'
     }
@@ -158,6 +162,21 @@ async function startServer() {
       await EmailService.initialize();
     } catch (error) {
       logger.warn('Email service initialization failed:', error);
+    }
+    
+    // Initialize AI Services
+    try {
+      if (process.env.GEMINI_API_KEY) {
+        initializeGeminiAI({
+          apiKey: process.env.GEMINI_API_KEY,
+          model: process.env.GEMINI_MODEL || 'gemini-pro'
+        });
+        logger.info('🧠 Gemini AI service initialized');
+      } else {
+        logger.info('🤖 Using local TensorFlow.js AI (set GEMINI_API_KEY for intelligent AI)');
+      }
+    } catch (error) {
+      logger.warn('AI service initialization failed:', error);
     }
     
     // Start server

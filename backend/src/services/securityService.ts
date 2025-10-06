@@ -1,435 +1,550 @@
 /**
- * Advanced Security & Monitoring Service for SaaS Multi-Tenant System
- * Handles threat detection, security monitoring, and compliance
+ * Enhanced Security Service
+ * Comprehensive security measures with role-based protection
  */
 
-import { PrismaClient } from '@prisma/client';
-import { logger } from '../utils/logger';
-import { RealtimeService } from './realtimeService';
+import crypto from 'crypto'
+import bcrypt from 'bcrypt'
+import rateLimit from 'express-rate-limit'
+import { Request, Response, NextFunction } from 'express'
+import { UserContext } from '../middleware/permissions'
+import { AuditService } from './auditService'
 
-const prisma = new PrismaClient();
-
-export interface SecurityEvent {
-  id: string;
-  tenantId: string;
-  type: 'login_attempt' | 'failed_login' | 'suspicious_activity' | 'data_access' | 'permission_escalation';
-  severity: 'low' | 'medium' | 'high' | 'critical';
-  userId?: string;
-  ipAddress: string;
-  userAgent: string;
-  details: Record<string, any>;
-  timestamp: Date;
-  resolved: boolean;
+export interface SecurityConfig {
+  encryption: {
+    algorithm: string
+    keyLength: number
+    ivLength: number
+  }
+  rateLimit: {
+    windowMs: number
+    maxRequests: number
+    skipSuccessfulRequests: boolean
+  }
+  passwordPolicy: {
+    minLength: number
+    requireUppercase: boolean
+    requireLowercase: boolean
+    requireNumbers: boolean
+    requireSpecialChars: boolean
+  }
+  sessionSecurity: {
+    maxAge: number
+    secure: boolean
+    httpOnly: boolean
+    sameSite: 'strict' | 'lax' | 'none'
+  }
 }
 
-export interface ThreatDetection {
-  tenantId: string;
-  threats: Array<{
-    type: string;
-    description: string;
-    severity: 'low' | 'medium' | 'high' | 'critical';
-    count: number;
-    lastOccurrence: Date;
-    recommendation: string;
-  }>;
-  riskScore: number;
-  complianceStatus: 'compliant' | 'warning' | 'non_compliant';
+export interface ValidationRule {
+  field: string
+  type: 'string' | 'number' | 'email' | 'phone' | 'date' | 'boolean'
+  required: boolean
+  minLength?: number
+  maxLength?: number
+  pattern?: RegExp
+  allowedValues?: any[]
+  customValidator?: (value: any) => boolean
+}
+
+export interface RateLimitConfig {
+  windowMs: number
+  maxRequests: number
+  message: string
+  skipSuccessfulRequests?: boolean
+  keyGenerator?: (req: Request) => string
 }
 
 export class SecurityService {
-  private static suspiciousIPs: Map<string, { attempts: number; lastAttempt: Date }> = new Map();
-  private static rateLimitTracking: Map<string, { requests: number; windowStart: Date }> = new Map();
+  private auditService: AuditService
+  private encryptionKey: string
+  private config: SecurityConfig
+
+  constructor(auditService: AuditService) {
+    this.auditService = auditService
+    this.encryptionKey = process.env.ENCRYPTION_KEY || this.generateEncryptionKey()
+    this.config = this.getDefaultConfig()
+  }
 
   /**
-   * Log security event
+   * Create role-based rate limiter
    */
-  static async logSecurityEvent(event: Omit<SecurityEvent, 'id' | 'timestamp' | 'resolved'>): Promise<void> {
-    try {
-      const securityEvent: SecurityEvent = {
-        ...event,
-        id: `sec_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`,
-        timestamp: new Date(),
-        resolved: false
-      };
+  createRoleBasedRateLimit(configs: Record<string, RateLimitConfig>) {
+    return (req: any, res: Response, next: NextFunction) => {
+      const userRole = req.user?.role || 'GUEST'
+      const config = configs[userRole] || configs['DEFAULT']
 
-      // Store in audit log
-      await prisma.auditLog.create({
-        data: {
-          userId: event.userId,
-          action: `SECURITY_${event.type.toUpperCase()}`,
-          resource: 'security_event',
-          resourceId: securityEvent.id,
-          newValues: securityEvent,
-          ipAddress: event.ipAddress,
-          userAgent: event.userAgent,
-          timestamp: securityEvent.timestamp
+      if (!config) {
+        return next()
+      }
+
+      const limiter = rateLimit({
+        windowMs: config.windowMs,
+        max: config.maxRequests,
+        message: { error: config.message },
+        skipSuccessfulRequests: config.skipSuccessfulRequests || false,
+        keyGenerator: config.keyGenerator || ((req) => {
+          return `${req.ip}:${req.user?.id || 'anonymous'}:${userRole}`
+        }),
+        handler: async (req, res) => {
+          // Log rate limit exceeded
+          if (req.user) {
+            await this.auditService.logEvent(
+              req.user,
+              'RATE_LIMIT_EXCEEDED',
+              'api_endpoint',
+              {
+                endpoint: req.path,
+                method: req.method,
+                userRole,
+                limit: config.maxRequests,
+                window: config.windowMs
+              },
+              req,
+              false,
+              'Rate limit exceeded'
+            )
+          }
+
+          res.status(429).json({ error: config.message })
         }
-      });
+      })
 
-      // Real-time notification for high/critical events
-      if (event.severity === 'high' || event.severity === 'critical') {
-        RealtimeService.broadcastToTenant(event.tenantId, 'security-alert', {
-          type: event.type,
-          severity: event.severity,
-          details: event.details,
-          timestamp: securityEvent.timestamp
-        });
-      }
-
-      // Auto-response for critical threats
-      if (event.severity === 'critical') {
-        await this.handleCriticalThreat(securityEvent);
-      }
-
-      logger.info(`Security event logged: ${event.type} (${event.severity})`, {
-        tenantId: event.tenantId,
-        eventId: securityEvent.id
-      });
-
-    } catch (error) {
-      logger.error('Failed to log security event:', error);
+      limiter(req, res, next)
     }
   }
 
   /**
-   * Detect and analyze threats for tenant
+   * Comprehensive input validation with security checks
    */
-  static async analyzeTenantThreats(tenantId: string): Promise<ThreatDetection> {
-    try {
-      const last24Hours = new Date(Date.now() - 24 * 60 * 60 * 1000);
+  validateInput(
+    data: Record<string, any>,
+    rules: ValidationRule[],
+    userContext?: UserContext
+  ): { isValid: boolean; errors: string[]; sanitizedData: Record<string, any> } {
+    const errors: string[] = []
+    const sanitizedData: Record<string, any> = {}
 
-      // Get recent security events
-      const recentEvents = await prisma.auditLog.findMany({
-        where: {
-          action: { startsWith: 'SECURITY_' },
-          timestamp: { gte: last24Hours },
-          // Filter by tenant (would need proper tenant filtering in real implementation)
+    for (const rule of rules) {
+      const value = data[rule.field]
+
+      // Check required fields
+      if (rule.required && (value === undefined || value === null || value === '')) {
+        errors.push(`${rule.field} is required`)
+        continue
+      }
+
+      // Skip validation for optional empty fields
+      if (!rule.required && (value === undefined || value === null || value === '')) {
+        continue
+      }
+
+      // Type validation
+      const typeValidation = this.validateType(value, rule.type)
+      if (!typeValidation.isValid) {
+        errors.push(`${rule.field} must be a valid ${rule.type}`)
+        continue
+      }
+
+      let sanitizedValue = typeValidation.sanitizedValue
+
+      // Length validation
+      if (rule.minLength && sanitizedValue.length < rule.minLength) {
+        errors.push(`${rule.field} must be at least ${rule.minLength} characters`)
+        continue
+      }
+
+      if (rule.maxLength && sanitizedValue.length > rule.maxLength) {
+        errors.push(`${rule.field} must not exceed ${rule.maxLength} characters`)
+        continue
+      }
+
+      // Pattern validation
+      if (rule.pattern && !rule.pattern.test(sanitizedValue)) {
+        errors.push(`${rule.field} format is invalid`)
+        continue
+      }
+
+      // Allowed values validation
+      if (rule.allowedValues && !rule.allowedValues.includes(sanitizedValue)) {
+        errors.push(`${rule.field} must be one of: ${rule.allowedValues.join(', ')}`)
+        continue
+      }
+
+      // Custom validation
+      if (rule.customValidator && !rule.customValidator(sanitizedValue)) {
+        errors.push(`${rule.field} validation failed`)
+        continue
+      }
+
+      // Security checks
+      const securityCheck = this.performSecurityChecks(sanitizedValue, rule.field)
+      if (!securityCheck.isValid) {
+        errors.push(`${rule.field}: ${securityCheck.error}`)
+        continue
+      }
+
+      sanitizedData[rule.field] = securityCheck.sanitizedValue
+    }
+
+    // Log validation attempts if there are errors
+    if (errors.length > 0 && userContext) {
+      this.auditService.logEvent(
+        userContext,
+        'INPUT_VALIDATION_FAILED',
+        'validation',
+        {
+          errors: errors.length,
+          fields: rules.map(r => r.field)
         },
-        orderBy: { timestamp: 'desc' }
-      });
-
-      // Analyze threat patterns
-      const threats = this.analyzeSecurityPatterns(recentEvents);
-      const riskScore = this.calculateRiskScore(threats);
-      const complianceStatus = this.assessCompliance(tenantId, threats);
-
-      return {
-        tenantId,
-        threats,
-        riskScore,
-        complianceStatus
-      };
-
-    } catch (error) {
-      logger.error(`Failed to analyze threats for tenant ${tenantId}:`, error);
-      return {
-        tenantId,
-        threats: [],
-        riskScore: 0,
-        complianceStatus: 'compliant'
-      };
-    }
-  }
-
-  /**
-   * Check for suspicious login patterns
-   */
-  static checkSuspiciousLogin(ipAddress: string, userId?: string): {
-    isSuspicious: boolean;
-    reason?: string;
-    shouldBlock: boolean;
-  } {
-    const now = new Date();
-    const ipData = this.suspiciousIPs.get(ipAddress);
-
-    // Check for rapid login attempts
-    if (ipData) {
-      const timeDiff = now.getTime() - ipData.lastAttempt.getTime();
-      
-      if (timeDiff < 60000 && ipData.attempts > 5) { // More than 5 attempts in 1 minute
-        return {
-          isSuspicious: true,
-          reason: 'Rapid login attempts detected',
-          shouldBlock: true
-        };
-      }
-
-      if (ipData.attempts > 10) { // More than 10 attempts total
-        return {
-          isSuspicious: true,
-          reason: 'Excessive login attempts',
-          shouldBlock: true
-        };
-      }
-    }
-
-    return { isSuspicious: false, shouldBlock: false };
-  }
-
-  /**
-   * Track failed login attempt
-   */
-  static trackFailedLogin(ipAddress: string, tenantId: string, details: any): void {
-    const now = new Date();
-    const ipData = this.suspiciousIPs.get(ipAddress) || { attempts: 0, lastAttempt: now };
-    
-    ipData.attempts += 1;
-    ipData.lastAttempt = now;
-    this.suspiciousIPs.set(ipAddress, ipData);
-
-    // Log security event
-    this.logSecurityEvent({
-      tenantId,
-      type: 'failed_login',
-      severity: ipData.attempts > 5 ? 'high' : 'medium',
-      ipAddress,
-      userAgent: details.userAgent || 'Unknown',
-      details: {
-        attempts: ipData.attempts,
-        email: details.email,
-        reason: details.reason
-      }
-    });
-  }
-
-  /**
-   * Advanced rate limiting with tenant isolation
-   */
-  static checkRateLimit(
-    tenantId: string, 
-    identifier: string, 
-    limit: number, 
-    windowMs: number
-  ): { allowed: boolean; remaining: number; resetTime: Date } {
-    const key = `${tenantId}:${identifier}`;
-    const now = new Date();
-    const windowStart = new Date(now.getTime() - windowMs);
-
-    let tracking = this.rateLimitTracking.get(key);
-    
-    if (!tracking || tracking.windowStart < windowStart) {
-      tracking = { requests: 0, windowStart: now };
-    }
-
-    tracking.requests += 1;
-    this.rateLimitTracking.set(key, tracking);
-
-    const remaining = Math.max(0, limit - tracking.requests);
-    const resetTime = new Date(tracking.windowStart.getTime() + windowMs);
-
-    if (tracking.requests > limit) {
-      // Log rate limit violation
-      this.logSecurityEvent({
-        tenantId,
-        type: 'suspicious_activity',
-        severity: 'medium',
-        ipAddress: identifier,
-        userAgent: 'Rate Limit Check',
-        details: {
-          requests: tracking.requests,
-          limit,
-          windowMs
-        }
-      });
+        null,
+        false,
+        `Validation failed: ${errors.join(', ')}`
+      )
     }
 
     return {
-      allowed: tracking.requests <= limit,
-      remaining,
-      resetTime
-    };
+      isValid: errors.length === 0,
+      errors,
+      sanitizedData
+    }
   }
 
   /**
-   * Generate security report for tenant
+   * Encrypt sensitive data
    */
-  static async generateSecurityReport(tenantId: string): Promise<{
-    summary: {
-      totalEvents: number;
-      criticalEvents: number;
-      resolvedEvents: number;
-      riskScore: number;
-    };
-    topThreats: Array<{ type: string; count: number; severity: string }>;
-    recommendations: string[];
-    complianceChecks: Array<{ check: string; status: 'pass' | 'fail' | 'warning'; details: string }>;
-  }> {
-    try {
-      const last30Days = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000);
+  encryptData(data: string): { encrypted: string; iv: string } {
+    const iv = crypto.randomBytes(this.config.encryption.ivLength)
+    const cipher = crypto.createCipher(this.config.encryption.algorithm, this.encryptionKey)
+    
+    let encrypted = cipher.update(data, 'utf8', 'hex')
+    encrypted += cipher.final('hex')
 
-      // Get security events
-      const events = await prisma.auditLog.findMany({
-        where: {
-          action: { startsWith: 'SECURITY_' },
-          timestamp: { gte: last30Days }
-        }
-      });
+    return {
+      encrypted,
+      iv: iv.toString('hex')
+    }
+  }
 
-      const totalEvents = events.length;
-      const criticalEvents = events.filter(e => 
-        e.newValues && typeof e.newValues === 'object' && 
-        'severity' in e.newValues && e.newValues.severity === 'critical'
-      ).length;
-      const resolvedEvents = events.filter(e => 
-        e.newValues && typeof e.newValues === 'object' && 
-        'resolved' in e.newValues && e.newValues.resolved === true
-      ).length;
+  /**
+   * Decrypt sensitive data
+   */
+  decryptData(encryptedData: string, iv: string): string {
+    const decipher = crypto.createDecipher(this.config.encryption.algorithm, this.encryptionKey)
+    
+    let decrypted = decipher.update(encryptedData, 'hex', 'utf8')
+    decrypted += decipher.final('utf8')
 
-      // Analyze threat patterns
-      const threatAnalysis = await this.analyzeTenantThreats(tenantId);
-      
-      // Generate recommendations
-      const recommendations = this.generateSecurityRecommendations(threatAnalysis);
-      
-      // Compliance checks
-      const complianceChecks = await this.performComplianceChecks(tenantId);
+    return decrypted
+  }
 
-      return {
-        summary: {
-          totalEvents,
-          criticalEvents,
-          resolvedEvents,
-          riskScore: threatAnalysis.riskScore
+  /**
+   * Hash passwords securely
+   */
+  async hashPassword(password: string): Promise<string> {
+    const saltRounds = parseInt(process.env.SALT_ROUNDS || '12')
+    return await bcrypt.hash(password, saltRounds)
+  }
+
+  /**
+   * Verify password against hash
+   */
+  async verifyPassword(password: string, hash: string): Promise<boolean> {
+    return await bcrypt.compare(password, hash)
+  }
+
+  /**
+   * Validate password against security policy
+   */
+  validatePassword(password: string): { isValid: boolean; errors: string[] } {
+    const errors: string[] = []
+    const policy = this.config.passwordPolicy
+
+    if (password.length < policy.minLength) {
+      errors.push(`Password must be at least ${policy.minLength} characters long`)
+    }
+
+    if (policy.requireUppercase && !/[A-Z]/.test(password)) {
+      errors.push('Password must contain at least one uppercase letter')
+    }
+
+    if (policy.requireLowercase && !/[a-z]/.test(password)) {
+      errors.push('Password must contain at least one lowercase letter')
+    }
+
+    if (policy.requireNumbers && !/\d/.test(password)) {
+      errors.push('Password must contain at least one number')
+    }
+
+    if (policy.requireSpecialChars && !/[!@#$%^&*(),.?":{}|<>]/.test(password)) {
+      errors.push('Password must contain at least one special character')
+    }
+
+    // Check for common weak passwords
+    const commonPasswords = ['password', '123456', 'qwerty', 'admin', 'letmein']
+    if (commonPasswords.includes(password.toLowerCase())) {
+      errors.push('Password is too common and easily guessable')
+    }
+
+    return {
+      isValid: errors.length === 0,
+      errors
+    }
+  }
+
+  /**
+   * Generate secure session token
+   */
+  generateSecureToken(length: number = 32): string {
+    return crypto.randomBytes(length).toString('hex')
+  }
+
+  /**
+   * Create CSRF token
+   */
+  generateCSRFToken(): string {
+    return crypto.randomBytes(32).toString('base64')
+  }
+
+  /**
+   * Validate CSRF token
+   */
+  validateCSRFToken(token: string, sessionToken: string): boolean {
+    // In production, implement proper CSRF validation
+    return token === sessionToken
+  }
+
+  /**
+   * Sanitize HTML input to prevent XSS
+   */
+  sanitizeHTML(input: string): string {
+    return input
+      .replace(/</g, '&lt;')
+      .replace(/>/g, '&gt;')
+      .replace(/"/g, '&quot;')
+      .replace(/'/g, '&#x27;')
+      .replace(/\//g, '&#x2F;')
+  }
+
+  /**
+   * Detect and prevent SQL injection attempts
+   */
+  detectSQLInjection(input: string): boolean {
+    const sqlPatterns = [
+      /(\b(SELECT|INSERT|UPDATE|DELETE|DROP|CREATE|ALTER|EXEC|UNION|SCRIPT)\b)/i,
+      /(--|\/\*|\*\/|;|'|")/,
+      /(\bOR\b|\bAND\b).*(\b=\b|\bLIKE\b)/i,
+      /(UNION.*SELECT|SELECT.*FROM|INSERT.*INTO|UPDATE.*SET|DELETE.*FROM)/i
+    ]
+
+    return sqlPatterns.some(pattern => pattern.test(input))
+  }
+
+  /**
+   * Monitor and detect suspicious activities
+   */
+  async monitorSuspiciousActivity(
+    userContext: UserContext,
+    activity: string,
+    metadata: Record<string, any>,
+    request: any
+  ): Promise<void> {
+    const suspiciousPatterns = [
+      'multiple_failed_logins',
+      'unusual_access_pattern',
+      'privilege_escalation_attempt',
+      'data_exfiltration_attempt',
+      'automated_requests'
+    ]
+
+    if (suspiciousPatterns.includes(activity)) {
+      await this.auditService.logEvent(
+        userContext,
+        'SUSPICIOUS_ACTIVITY_DETECTED',
+        'security_monitoring',
+        {
+          activity,
+          ...metadata,
+          riskScore: this.calculateRiskScore(activity, metadata)
         },
-        topThreats: threatAnalysis.threats.slice(0, 5).map(t => ({
-          type: t.type,
-          count: t.count,
-          severity: t.severity
-        })),
-        recommendations,
-        complianceChecks
-      };
-
-    } catch (error) {
-      logger.error(`Failed to generate security report for tenant ${tenantId}:`, error);
-      throw error;
+        request,
+        false,
+        `Suspicious activity detected: ${activity}`
+      )
     }
   }
 
   /**
-   * Private helper methods
+   * Check for cross-tenant access attempts
    */
-  private static analyzeSecurityPatterns(events: any[]) {
-    const threatMap = new Map<string, any>();
-
-    events.forEach(event => {
-      if (event.newValues && typeof event.newValues === 'object') {
-        const type = event.newValues.type || 'unknown';
-        const severity = event.newValues.severity || 'low';
-        
-        if (!threatMap.has(type)) {
-          threatMap.set(type, {
-            type,
-            description: this.getThreatDescription(type),
-            severity,
-            count: 0,
-            lastOccurrence: event.timestamp,
-            recommendation: this.getThreatRecommendation(type)
-          });
-        }
-        
-        const threat = threatMap.get(type);
-        threat.count += 1;
-        if (event.timestamp > threat.lastOccurrence) {
-          threat.lastOccurrence = event.timestamp;
-        }
+  validateTenantAccess(
+    userContext: UserContext,
+    resourceTenantId: string,
+    resource: string
+  ): { isValid: boolean; error?: string } {
+    if (userContext.tenantId !== resourceTenantId) {
+      return {
+        isValid: false,
+        error: `Cross-tenant access denied: User from tenant ${userContext.tenantId} attempted to access resource from tenant ${resourceTenantId}`
       }
-    });
-
-    return Array.from(threatMap.values());
-  }
-
-  private static calculateRiskScore(threats: any[]): number {
-    const severityWeights = { low: 1, medium: 3, high: 7, critical: 15 };
-    
-    return threats.reduce((score, threat) => {
-      const weight = severityWeights[threat.severity] || 1;
-      return score + (threat.count * weight);
-    }, 0);
-  }
-
-  private static assessCompliance(tenantId: string, threats: any[]): 'compliant' | 'warning' | 'non_compliant' {
-    const criticalThreats = threats.filter(t => t.severity === 'critical').length;
-    const highThreats = threats.filter(t => t.severity === 'high').length;
-
-    if (criticalThreats > 0) return 'non_compliant';
-    if (highThreats > 3) return 'warning';
-    return 'compliant';
-  }
-
-  private static async handleCriticalThreat(event: SecurityEvent): Promise<void> {
-    logger.warn(`Critical security threat detected for tenant ${event.tenantId}:`, event);
-    
-    // Auto-response actions could include:
-    // - Temporary account suspension
-    // - IP blocking
-    // - Admin notifications
-    // - Audit trail enhancement
-  }
-
-  private static getThreatDescription(type: string): string {
-    const descriptions = {
-      'failed_login': 'Multiple failed login attempts detected',
-      'suspicious_activity': 'Unusual user behavior patterns identified',
-      'data_access': 'Unauthorized data access attempts',
-      'permission_escalation': 'Attempts to gain elevated privileges'
-    };
-    return descriptions[type] || 'Unknown security event';
-  }
-
-  private static getThreatRecommendation(type: string): string {
-    const recommendations = {
-      'failed_login': 'Enable account lockout policies and multi-factor authentication',
-      'suspicious_activity': 'Review user access patterns and implement behavioral monitoring',
-      'data_access': 'Strengthen access controls and audit data permissions',
-      'permission_escalation': 'Review role assignments and implement principle of least privilege'
-    };
-    return recommendations[type] || 'Review security policies and procedures';
-  }
-
-  private static generateSecurityRecommendations(analysis: ThreatDetection): string[] {
-    const recommendations = [];
-
-    if (analysis.riskScore > 50) {
-      recommendations.push('Implement additional security monitoring and alerting');
     }
 
-    if (analysis.threats.some(t => t.type === 'failed_login' && t.count > 10)) {
-      recommendations.push('Enable multi-factor authentication for all users');
-    }
-
-    if (analysis.complianceStatus !== 'compliant') {
-      recommendations.push('Address compliance issues to meet security standards');
-    }
-
-    recommendations.push('Regular security training for all team members');
-    recommendations.push('Implement automated security scanning and monitoring');
-
-    return recommendations;
+    return { isValid: true }
   }
 
-  private static async performComplianceChecks(tenantId: string) {
-    return [
-      {
-        check: 'Password Policy',
-        status: 'pass' as const,
-        details: 'Strong password requirements enforced'
+  /**
+   * Implement security headers middleware
+   */
+  securityHeaders() {
+    return (req: Request, res: Response, next: NextFunction) => {
+      // Prevent clickjacking
+      res.setHeader('X-Frame-Options', 'DENY')
+      
+      // Prevent MIME type sniffing
+      res.setHeader('X-Content-Type-Options', 'nosniff')
+      
+      // Enable XSS protection
+      res.setHeader('X-XSS-Protection', '1; mode=block')
+      
+      // Enforce HTTPS
+      res.setHeader('Strict-Transport-Security', 'max-age=31536000; includeSubDomains')
+      
+      // Content Security Policy
+      res.setHeader('Content-Security-Policy', "default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'")
+      
+      // Referrer Policy
+      res.setHeader('Referrer-Policy', 'strict-origin-when-cross-origin')
+      
+      next()
+    }
+  }
+
+  // Private helper methods
+
+  private getDefaultConfig(): SecurityConfig {
+    return {
+      encryption: {
+        algorithm: 'aes-256-cbc',
+        keyLength: 32,
+        ivLength: 16
       },
-      {
-        check: 'Data Encryption',
-        status: 'pass' as const,
-        details: 'All sensitive data encrypted at rest and in transit'
+      rateLimit: {
+        windowMs: 15 * 60 * 1000, // 15 minutes
+        maxRequests: 100,
+        skipSuccessfulRequests: false
       },
-      {
-        check: 'Access Logging',
-        status: 'pass' as const,
-        details: 'Comprehensive audit logging implemented'
+      passwordPolicy: {
+        minLength: 8,
+        requireUppercase: true,
+        requireLowercase: true,
+        requireNumbers: true,
+        requireSpecialChars: true
       },
-      {
-        check: 'Multi-Factor Authentication',
-        status: 'warning' as const,
-        details: 'MFA recommended for all admin accounts'
+      sessionSecurity: {
+        maxAge: 24 * 60 * 60 * 1000, // 24 hours
+        secure: process.env.NODE_ENV === 'production',
+        httpOnly: true,
+        sameSite: 'strict'
       }
-    ];
+    }
+  }
+
+  private generateEncryptionKey(): string {
+    return crypto.randomBytes(32).toString('hex')
+  }
+
+  private validateType(value: any, type: string): { isValid: boolean; sanitizedValue: any } {
+    switch (type) {
+      case 'string':
+        if (typeof value !== 'string') return { isValid: false, sanitizedValue: value }
+        return { isValid: true, sanitizedValue: value.trim() }
+
+      case 'number':
+        const num = Number(value)
+        if (isNaN(num)) return { isValid: false, sanitizedValue: value }
+        return { isValid: true, sanitizedValue: num }
+
+      case 'email':
+        if (typeof value !== 'string') return { isValid: false, sanitizedValue: value }
+        const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/
+        const email = value.trim().toLowerCase()
+        return { isValid: emailRegex.test(email), sanitizedValue: email }
+
+      case 'phone':
+        if (typeof value !== 'string') return { isValid: false, sanitizedValue: value }
+        const phoneRegex = /^\+?[\d\s\-\(\)]+$/
+        const phone = value.replace(/\s/g, '')
+        return { isValid: phoneRegex.test(phone), sanitizedValue: phone }
+
+      case 'date':
+        const date = new Date(value)
+        if (isNaN(date.getTime())) return { isValid: false, sanitizedValue: value }
+        return { isValid: true, sanitizedValue: date }
+
+      case 'boolean':
+        if (typeof value === 'boolean') return { isValid: true, sanitizedValue: value }
+        if (value === 'true' || value === '1') return { isValid: true, sanitizedValue: true }
+        if (value === 'false' || value === '0') return { isValid: true, sanitizedValue: false }
+        return { isValid: false, sanitizedValue: value }
+
+      default:
+        return { isValid: true, sanitizedValue: value }
+    }
+  }
+
+  private performSecurityChecks(value: any, field: string): { isValid: boolean; error?: string; sanitizedValue: any } {
+    const stringValue = String(value)
+
+    // Check for SQL injection
+    if (this.detectSQLInjection(stringValue)) {
+      return {
+        isValid: false,
+        error: 'Potential SQL injection detected',
+        sanitizedValue: value
+      }
+    }
+
+    // Check for XSS attempts
+    if (/<script|javascript:|on\w+=/i.test(stringValue)) {
+      return {
+        isValid: false,
+        error: 'Potential XSS attempt detected',
+        sanitizedValue: value
+      }
+    }
+
+    // Sanitize HTML for text fields
+    let sanitizedValue = value
+    if (typeof value === 'string' && field !== 'password') {
+      sanitizedValue = this.sanitizeHTML(value)
+    }
+
+    return {
+      isValid: true,
+      sanitizedValue
+    }
+  }
+
+  private calculateRiskScore(activity: string, metadata: Record<string, any>): number {
+    let score = 0
+
+    switch (activity) {
+      case 'multiple_failed_logins':
+        score = Math.min(metadata.attempts * 10, 100)
+        break
+      case 'privilege_escalation_attempt':
+        score = 80
+        break
+      case 'data_exfiltration_attempt':
+        score = 90
+        break
+      case 'automated_requests':
+        score = 60
+        break
+      default:
+        score = 30
+    }
+
+    return score
   }
 }

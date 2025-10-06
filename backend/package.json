@@ -16,7 +16,9 @@
     "db:seed-simple": "tsx src/scripts/seedSimple.ts"
   },
   "dependencies": {
+    "@google/generative-ai": "^0.2.1",
     "@prisma/client": "^5.7.1",
+    "@tensorflow/tfjs-node": "^4.15.0",
     "@types/bcrypt": "^6.0.0",
     "@types/joi": "^17.2.2",
     "@types/multer": "^2.0.0",
