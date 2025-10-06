@@ -3,12 +3,11 @@
  * API endpoints for product catalog management
  */
 
-import express, { Request, Response } from 'express';
+import express, { Response } from 'express';
 import { ProductService } from '../services/productService';
 import { authenticateJWT } from '../middleware/auth';
-import { tenantAuth } from '../middleware/tenantAuth';
+import { AuthenticatedRequest } from '../types';
 import { validateRequest } from '../middleware/validation';
-import { auditCustomAction } from '../middleware/auditLogger';
 import { apiRateLimit } from '../middleware/rateLimiter';
 import { 
   CreateProductInput, 
@@ -25,10 +24,10 @@ const router = express.Router();
 
 // Configure multer for image uploads
 const storage = multer.diskStorage({
-  destination: (req, file, cb) => {
+  destination: (_req, _file, cb) => {
     cb(null, 'uploads/products/');
   },
-  filename: (req, file, cb) => {
+  filename: (_req, file, cb) => {
     const uniqueSuffix = Date.now() + '-' + Math.round(Math.random() * 1E9);
     cb(null, file.fieldname + '-' + uniqueSuffix + path.extname(file.originalname));
   }
@@ -40,7 +39,7 @@ const upload = multer({
     fileSize: 5 * 1024 * 1024, // 5MB limit
     files: 10 // Max 10 files
   },
-  fileFilter: (req, file, cb) => {
+  fileFilter: (_req, file, cb) => {
     const allowedTypes = /jpeg|jpg|png|gif|webp/;
     const extname = allowedTypes.test(path.extname(file.originalname).toLowerCase());
     const mimetype = allowedTypes.test(file.mimetype);
@@ -60,16 +59,16 @@ router.use(authenticateJWT);
  * GET /api/products
  * Search and list products with pagination and filters
  */
-router.get('/', apiRateLimit, async (req: Request, res: Response) => {
+router.get('/', apiRateLimit, async (req: AuthenticatedRequest, res: Response) => {
   try {
     const query: ProductSearchQuery = {
-      query: req.query.q as string,
-      category: req.query.category as string,
-      brand: req.query.brand as string,
-      minPrice: req.query.minPrice ? parseFloat(req.query.minPrice as string) : undefined,
-      maxPrice: req.query.maxPrice ? parseFloat(req.query.maxPrice as string) : undefined,
-      isActive: req.query.isActive ? req.query.isActive === 'true' : undefined,
-      locationId: req.query.locationId as string,
+      ...(req.query.q && { query: req.query.q as string }),
+      ...(req.query.category && { category: req.query.category as string }),
+      ...(req.query.brand && { brand: req.query.brand as string }),
+      ...(req.query.minPrice && { minPrice: parseFloat(req.query.minPrice as string) }),
+      ...(req.query.maxPrice && { maxPrice: parseFloat(req.query.maxPrice as string) }),
+      ...(req.query.isActive && { isActive: req.query.isActive === 'true' }),
+      ...(req.query.locationId && { locationId: req.query.locationId as string }),
     };
 
     const pagination: PaginationParams = {
@@ -101,7 +100,7 @@ router.get('/', apiRateLimit, async (req: Request, res: Response) => {
  * GET /api/products/stats
  * Get product statistics
  */
-router.get('/stats', async (req: Request, res: Response) => {
+router.get('/stats', async (_req: AuthenticatedRequest, res: Response) => {
   try {
     const stats = await ProductService.getProductStats();
 
@@ -124,7 +123,7 @@ router.get('/stats', async (req: Request, res: Response) => {
  * GET /api/products/categories
  * Get all product categories
  */
-router.get('/categories', async (req: Request, res: Response) => {
+router.get('/categories', async (_req: AuthenticatedRequest, res: Response) => {
   try {
     const categories = await ProductService.getCategories();
 
@@ -147,7 +146,7 @@ router.get('/categories', async (req: Request, res: Response) => {
  * GET /api/products/brands
  * Get all product brands
  */
-router.get('/brands', async (req: Request, res: Response) => {
+router.get('/brands', async (_req: AuthenticatedRequest, res: Response) => {
   try {
     const brands = await ProductService.getBrands();
 
@@ -170,7 +169,7 @@ router.get('/brands', async (req: Request, res: Response) => {
  * GET /api/products/low-stock
  * Get products with low stock levels
  */
-router.get('/low-stock', async (req: Request, res: Response) => {
+router.get('/low-stock', async (req: AuthenticatedRequest, res: Response) => {
   try {
     const locationId = req.query.locationId as string;
     const products = await ProductService.getLowStockProducts(locationId);
@@ -194,7 +193,7 @@ router.get('/low-stock', async (req: Request, res: Response) => {
  * GET /api/products/scan/:code
  * Find product by tracking code (QR, barcode, RFID, NFC)
  */
-router.get('/scan/:code', async (req: Request, res: Response) => {
+router.get('/scan/:code', async (req: AuthenticatedRequest, res: Response) => {
   try {
     const { code } = req.params;
     const decodedCode = decodeURIComponent(code);
@@ -251,7 +250,7 @@ router.get('/scan/:code', async (req: Request, res: Response) => {
  * GET /api/products/:id
  * Get product by ID
  */
-router.get('/:id', async (req: Request, res: Response) => {
+router.get('/:id', async (req: AuthenticatedRequest, res: Response) => {
   try {
     const { id } = req.params;
     const includeStock = req.query.includeStock === 'true';
@@ -291,7 +290,7 @@ router.get('/:id', async (req: Request, res: Response) => {
  * POST /api/products
  * Create a new product
  */
-router.post('/', validateRequest, async (req: Request, res: Response) => {
+router.post('/', validateRequest, async (req: AuthenticatedRequest, res: Response) => {
   try {
     const productData: CreateProductInput = req.body;
     const userId = req.user?.id;
@@ -342,7 +341,7 @@ router.post('/', validateRequest, async (req: Request, res: Response) => {
  * POST /api/products/bulk
  * Create multiple products in bulk
  */
-router.post('/bulk', validateRequest, async (req: Request, res: Response) => {
+router.post('/bulk', validateRequest, async (req: AuthenticatedRequest, res: Response) => {
   try {
     const productsData: CreateProductInput[] = req.body.products;
     const userId = req.user?.id;
@@ -392,7 +391,7 @@ router.post('/bulk', validateRequest, async (req: Request, res: Response) => {
  * PUT /api/products/:id
  * Update product
  */
-router.put('/:id', validateRequest, async (req: Request, res: Response) => {
+router.put('/:id', validateRequest, async (req: AuthenticatedRequest, res: Response) => {
   try {
     const { id } = req.params;
     const updateData: UpdateProductInput = req.body;
@@ -444,7 +443,7 @@ router.put('/:id', validateRequest, async (req: Request, res: Response) => {
  * POST /api/products/:id/images
  * Upload product images
  */
-router.post('/:id/images', upload.array('images', 10), async (req: Request, res: Response) => {
+router.post('/:id/images', upload.array('images', 10), async (req: AuthenticatedRequest, res: Response) => {
   try {
     const { id } = req.params;
     const userId = req.user?.id;
@@ -489,7 +488,7 @@ router.post('/:id/images', upload.array('images', 10), async (req: Request, res:
  * DELETE /api/products/:id
  * Delete product (soft delete)
  */
-router.delete('/:id', async (req: Request, res: Response) => {
+router.delete('/:id', async (req: AuthenticatedRequest, res: Response) => {
   try {
     const { id } = req.params;
     const userId = req.user?.id;

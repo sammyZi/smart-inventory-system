@@ -300,7 +300,7 @@ export const ROLE_NAVIGATION: Record<UserRole, NavigationConfig> = {
       { label: 'Settings', path: '/admin/settings', icon: 'Settings' }
     ],
     secondaryNav: [
-      { label: 'AI Forecasting', path: '/admin/ai', icon: 'Brain' },
+      { label: 'AI Forecasting', path: '/ai', icon: 'Brain' },
       { label: 'IoT Devices', path: '/admin/iot', icon: 'Wifi' },
       { label: 'Blockchain', path: '/admin/blockchain', icon: 'Link' }
     ],

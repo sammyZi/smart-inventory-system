@@ -57,7 +57,7 @@ router.get('/stock', apiRateLimit, async (req: AuthenticatedRequest, res: Respon
 
     const stockLevels = await InventoryService.getTenantStockLevels(tenantId, filters);
 
-    res.json({
+    return res.json({
       success: true,
       data: stockLevels,
       count: stockLevels.length
@@ -65,7 +65,7 @@ router.get('/stock', apiRateLimit, async (req: AuthenticatedRequest, res: Respon
 
   } catch (error) {
     logger.error('Error fetching stock levels:', error);
-    res.status(500).json({
+    return res.status(500).json({
       success: false,
       error: 'Failed to fetch stock levels',
       message: error instanceof Error ? error.message : 'Unknown error'
@@ -87,7 +87,7 @@ router.put('/stock/update',
 
       const updatedStock = await InventoryService.updateStockLevel(tenantId, updateData, userId);
 
-      res.json({
+      return res.json({
         success: true,
         data: updatedStock,
         message: 'Stock level updated successfully'
@@ -104,7 +104,7 @@ router.put('/stock/update',
         });
       }
 
-      res.status(500).json({
+      return res.status(500).json({
         success: false,
         error: 'Failed to update stock level',
         message: error instanceof Error ? error.message : 'Unknown error'
@@ -132,7 +132,7 @@ router.get('/movements', async (req: AuthenticatedRequest, res: Response) => {
 
     const movements = await InventoryService.getStockMovements(tenantId, filters);
 
-    res.json({
+    return res.json({
       success: true,
       data: movements,
       count: movements.length
@@ -140,7 +140,7 @@ router.get('/movements', async (req: AuthenticatedRequest, res: Response) => {
 
   } catch (error) {
     logger.error('Error fetching stock movements:', error);
-    res.status(500).json({
+    return res.status(500).json({
       success: false,
       error: 'Failed to fetch stock movements',
       message: error instanceof Error ? error.message : 'Unknown error'
@@ -162,7 +162,7 @@ router.post('/transfer',
 
       const transfer = await InventoryService.createStockTransfer(tenantId, transferData, userId);
 
-      res.status(201).json({
+      return res.status(201).json({
         success: true,
         data: transfer,
         message: 'Stock transfer created successfully'
@@ -187,7 +187,7 @@ router.post('/transfer',
         });
       }
 
-      res.status(500).json({
+      return res.status(500).json({
         success: false,
         error: 'Failed to create stock transfer',
         message: error instanceof Error ? error.message : 'Unknown error'
@@ -223,7 +223,7 @@ router.put('/transfer/:transferId/process',
         action
       );
 
-      res.json({
+      return res.json({
         success: true,
         data: processedTransfer,
         message: `Stock transfer ${action}d successfully`
@@ -248,7 +248,7 @@ router.put('/transfer/:transferId/process',
         });
       }
 
-      res.status(500).json({
+      return res.status(500).json({
         success: false,
         error: 'Failed to process stock transfer',
         message: error instanceof Error ? error.message : 'Unknown error'
@@ -267,7 +267,7 @@ router.get('/alerts', async (req: AuthenticatedRequest, res: Response) => {
     
     const alerts = await InventoryService.getInventoryAlerts(tenantId);
 
-    res.json({
+    return res.json({
       success: true,
       data: alerts,
       count: alerts.length
@@ -275,7 +275,7 @@ router.get('/alerts', async (req: AuthenticatedRequest, res: Response) => {
 
   } catch (error) {
     logger.error('Error fetching inventory alerts:', error);
-    res.status(500).json({
+    return res.status(500).json({
       success: false,
       error: 'Failed to fetch inventory alerts',
       message: error instanceof Error ? error.message : 'Unknown error'
@@ -303,7 +303,7 @@ router.post('/stock/bulk-update', async (req: AuthenticatedRequest, res: Respons
 
     const result = await InventoryService.bulkUpdateStock(tenantId, updates, userId);
 
-    res.json({
+    return res.json({
       success: true,
       data: result,
       message: `Bulk update completed: ${result.success.length} successful, ${result.failed.length} failed`
@@ -311,7 +311,7 @@ router.post('/stock/bulk-update', async (req: AuthenticatedRequest, res: Respons
 
   } catch (error) {
     logger.error('Error in bulk stock update:', error);
-    res.status(500).json({
+    return res.status(500).json({
       success: false,
       error: 'Failed to perform bulk stock update',
       message: error instanceof Error ? error.message : 'Unknown error'
@@ -346,7 +346,7 @@ router.post('/stock/reserve', async (req: AuthenticatedRequest, res: Response) =
       reference
     );
 
-    res.json({
+    return res.json({
       success: true,
       data: reservedStock,
       message: 'Stock reserved successfully'
@@ -354,7 +354,7 @@ router.post('/stock/reserve', async (req: AuthenticatedRequest, res: Response) =
 
   } catch (error) {
     logger.error('Error reserving stock:', error);
-    res.status(500).json({
+    return res.status(500).json({
       success: false,
       error: 'Failed to reserve stock',
       message: error instanceof Error ? error.message : 'Unknown error'
@@ -389,7 +389,7 @@ router.post('/stock/release', async (req: AuthenticatedRequest, res: Response) =
       reference
     );
 
-    res.json({
+    return res.json({
       success: true,
       data: releasedStock,
       message: 'Reserved stock released successfully'
@@ -397,7 +397,7 @@ router.post('/stock/release', async (req: AuthenticatedRequest, res: Response) =
 
   } catch (error) {
     logger.error('Error releasing reserved stock:', error);
-    res.status(500).json({
+    return res.status(500).json({
       success: false,
       error: 'Failed to release reserved stock',
       message: error instanceof Error ? error.message : 'Unknown error'
@@ -429,14 +429,14 @@ router.post('/validate', async (req: AuthenticatedRequest, res: Response) => {
       requiredQuantity
     );
 
-    res.json({
+    return res.json({
       success: true,
       data: validation
     });
 
   } catch (error) {
     logger.error('Error validating stock operation:', error);
-    res.status(500).json({
+    return res.status(500).json({
       success: false,
       error: 'Failed to validate stock operation',
       message: error instanceof Error ? error.message : 'Unknown error'
@@ -454,14 +454,14 @@ router.get('/summary', async (req: AuthenticatedRequest, res: Response) => {
     
     const summary = await InventoryService.getInventorySummary(tenantId);
 
-    res.json({
+    return res.json({
       success: true,
       data: summary
     });
 
   } catch (error) {
     logger.error('Error fetching inventory summary:', error);
-    res.status(500).json({
+    return res.status(500).json({
       success: false,
       error: 'Failed to fetch inventory summary',
       message: error instanceof Error ? error.message : 'Unknown error'
@@ -489,14 +489,14 @@ router.get('/dashboard', async (req: AuthenticatedRequest, res: Response) => {
       alerts: summary.alerts.slice(0, 5) // Top 5 alerts
     };
 
-    res.json({
+    return res.json({
       success: true,
       data: dashboardData
     });
 
   } catch (error) {
     logger.error('Error fetching inventory dashboard:', error);
-    res.status(500).json({
+    return res.status(500).json({
       success: false,
       error: 'Failed to fetch inventory dashboard',
       message: error instanceof Error ? error.message : 'Unknown error'
